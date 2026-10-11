@@ -21,7 +21,7 @@ import pandas as pd
 import redis
 import streamlit as st
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 IST = timezone(timedelta(hours=5, minutes=30))
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = Path(os.environ.get("DASHBOARD_CONFIG", ROOT / "config" / "dashboard.json"))
@@ -66,8 +66,8 @@ def slots(prefix: str) -> list[str]:
     for k in client().scan_iter(match=f"{prefix}:v1:*:dash:state", count=200):
         if "{" in k and "}" in k:
             found.add(k[k.index("{") + 1:k.index("}")])
-    # main strategy (Sniper) first, then the rest by name
-    return sorted(found, key=lambda x: (0 if "sniper" in x else 1, x))
+    # active strategy (WVAD) first, then the rest by name
+    return sorted(found, key=lambda x: (0 if "wvad" in x else 1, x))
 
 
 def snapshot(prefix: str, slot: str) -> dict | None:

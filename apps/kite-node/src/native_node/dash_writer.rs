@@ -360,7 +360,7 @@ mod tests {
         pubsub.subscribe(&keys.live).unwrap();
         pubsub.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
 
-        let board = Board { slot: "crudeoilm-sniper-202610".into(), point_value: 10.0, ..Board::default() };
+        let board = Board { slot: "crudeoilm-wvad-202610".into(), point_value: 10.0, ..Board::default() };
         let (publisher, [strategy]) = start::<1>(board, Some(r.url.clone()), keys.clone()).unwrap();
         strategy.push(|b| {
             b.status = "RUNNING".into();
@@ -378,7 +378,7 @@ mod tests {
         assert_eq!(status, "RUNNING");
         let snapshot: String = con.hget(&keys.state, "snapshot").unwrap();
         let v: serde_json::Value = serde_json::from_str(&snapshot).unwrap();
-        assert_eq!(v["board"]["slot"], "crudeoilm-sniper-202610");
+        assert_eq!(v["board"]["slot"], "crudeoilm-wvad-202610");
         assert_eq!(v["board"]["position"], 1.0);
         let ttl: i64 = con.ttl(&keys.state).unwrap();
         assert!(ttl > 0, "state expires after the run");

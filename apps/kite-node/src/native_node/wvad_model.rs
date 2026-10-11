@@ -4,9 +4,8 @@ use super::{
     bar_model::{BarModel, Levels},
     slot_config::ModelParams,
 };
-use sniper::{Bar, Event};
 use std::collections::BTreeMap;
-use wvad::{Engine, Params};
+use wvad::{Bar, Engine, Event, Params};
 
 #[cfg(test)]
 pub type WvadConfig = super::slot_config::SlotConfig<Params>;

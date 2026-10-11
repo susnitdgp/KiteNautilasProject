@@ -189,17 +189,18 @@ impl Portfolio {
         Ok(format!("{}:v1:{{{}}}:{}", self.redis_prefix, id, kind))
     }
 }
-/// Strategy-specific settings for the report. A `sats` slot's own config must
+/// Strategy-specific settings for the report. A `wvad` slot's own config must
 /// load and validate when the slot is enabled; for a disabled slot the error is reported.
 fn strategy_settings(v: &Instance) -> Result<serde_json::Value> {
-    if v.strategy != super::sats_config::STRATEGY {
+    use super::slot_config::{ModelParams, SlotConfig};
+    if v.strategy != <wvad::Params as ModelParams>::STRATEGY {
         return Ok(serde_json::Value::Null);
     }
-    match super::sats_config::SatsConfig::load(&v.strategy_config) {
+    match SlotConfig::<wvad::Params>::load(&v.strategy_config) {
         Ok(c) => Ok(serde_json::json!({
-            "bar_minutes": c.bar_minutes, "lots": c.lots, "tick_size": c.tick_size,
-            "point_value": c.point_value, "execution": c.execution,
-            "preset": c.params.preset, "tp_mode": c.params.tp_mode,
+            "bar_minutes": c.bar_minutes, "lots": c.lots, "tp1_lots": c.tp1_lots, "tp2_lots": c.tp2_lots,
+            "point_value": c.point_value, "model": c.params.label(),
+            "entries_until": c.entries_until.to_string(), "square_off": c.square_off.to_string(),
         })),
         Err(e) if !v.enabled => Ok(serde_json::json!({ "error": format!("{e:#}") })),
         Err(e) => Err(e),

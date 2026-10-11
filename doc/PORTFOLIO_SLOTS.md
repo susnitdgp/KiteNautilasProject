@@ -6,7 +6,8 @@ lock and its own logs. Code: `apps/kite-node/src/native_node/portfolio.rs`
 (manifest and validation) and `crates/kite-adapter/src/execution/native_client/keys.rs`
 (names).
 
-Written for kite-node 2.27.0 / kite-adapter 0.8.2.
+Written for kite-node 2.28.0 / kite-adapter 0.8.2. Sniper and SATS are parked in `backup/`;
+WVAD is the only strategy with a runner.
 
 ---
 
@@ -14,10 +15,12 @@ Written for kite-node 2.27.0 / kite-adapter 0.8.2.
 
 | Slot ID | Strategy | Contract | Enabled | Live orders allowed |
 |---|---|---|---|---|
-| `crudeoilm-sniper-202610` | sniper (main) | CRUDEOILM26OCTFUT.MCX, token 145894663, expiry 2026-10-19 | yes | yes |
-| `crudeoilm-sats-202610` | sats | CRUDEOILM26OCTFUT.MCX, token 145894663, expiry 2026-10-19 | no | yes |
-| `crudeoilm-wvad-202610` | wvad (`doc/WVAD_STRATEGY.md`) | CRUDEOILM26OCTFUT.MCX, token 145894663, expiry 2026-10-19 | no | no (paper only) |
 | `nifty-fut` | unassigned (placeholder) | NIFTY_FUT_CONTRACT.NFO, token 0 | no | no |
+| `gold-fut` | unassigned (placeholder) | GOLD_FUT_CONTRACT.MCX, token 0 | no | no |
+| `crudeoilm-wvad-202610` | wvad (`doc/WVAD_STRATEGY.md`) | CRUDEOILM26OCTFUT.MCX, token 145894663, expiry 2026-10-19 | no | no (paper only) |
+
+The Sniper and SATS slots (`crudeoilm-sniper-202610`, `crudeoilm-sats-202610`) are parked in
+`backup/config/portfolio-slots.json`.
 
 ---
 
@@ -38,12 +41,12 @@ Written for kite-node 2.27.0 / kite-adapter 0.8.2.
 |---|---|
 | `id` | Slot ID. With `rollover`, it must be exactly `<rollover.strategy_id>-<YYYYMM>` |
 | `enabled` | Live runs refuse a disabled slot; backtests and paper runs still work on it |
-| `strategy` | `sniper` or `sats`; anything else has no runner (`unassigned` = placeholder) |
+| `strategy` | `wvad`; anything else has no runner (`unassigned` = placeholder; `sniper` / `sats` are parked in `backup/`) |
 | `instrument` | `<SYMBOL>.MCX` or `<SYMBOL>.NFO` |
 | `instrument_token` | Kite token; required (non-zero) when enabled |
-| `strategy_config` | Path to the strategy's own JSON (for example `config/sniper-crudeoilm.json`) |
+| `strategy_config` | Path to the strategy's own JSON (for example `config/wvad-crudeoilm.json`) |
 | `live_orders_enabled` | Second gate for real orders (section 4) |
-| `rollover.strategy_id` | Permanent strategy identity across contract months (for example `crudeoilm-sniper`) |
+| `rollover.strategy_id` | Permanent strategy identity across contract months (for example `crudeoilm-wvad`) |
 | `rollover.contract_month` | `YYYY-MM`; must match `expected_expiry` and the month in the symbol (`26OCT`) |
 | `rollover.expected_expiry` | Runs are refused after this date; it must also match Kite's instrument master |
 | `rollover.lot_size` | Contract lot size (CRUDEOILM 1) |
@@ -54,12 +57,11 @@ Written for kite-node 2.27.0 / kite-adapter 0.8.2.
 * IDs, prefix and strategy identity: only letters, digits, `-` and `_`, at most 48 characters
   (Redis key safety).
 * No duplicate slot IDs; no two slots with the same **instrument + strategy** pair.
-  Different strategies on the same instrument are allowed (Sniper and SATS share CRUDEOILM).
+  Different strategies on the same instrument are allowed (Sniper and SATS shared CRUDEOILM).
 * Enabled slots need a token, and one token may not map to two different instruments.
 * `live_orders_enabled` is only accepted by a `--features live-orders` build.
-* The slot's strategy config must agree with the slot: Sniper's config carries its own
-  `symbol` and `instrument_token`, which must match the slot; SATS takes both from the slot.
-  Both require product MIS.
+* The slot's strategy config must agree with the slot: the WVAD config carries its own
+  `symbol` and `instrument_token`, which must match the slot, and requires product MIS.
 
 Read-only check with the full key layout:
 `./target/release/kite-node native-portfolio-validate config/portfolio-production.json`
@@ -88,7 +90,7 @@ Each slot also runs as its own Nautilus trader (`kite-prod-<slot>`) with its own
 ### 3.2 Own settings file
 
 All strategy inputs live in the file named by `strategy_config`. Two slots can run the same
-strategy with different settings (for example, two Sniper configs on two instruments).
+strategy with different settings (for example, two WVAD configs on two instruments).
 
 ### 3.3 One process per slot per day
 
@@ -196,7 +198,7 @@ bar and strategy stages are real there; the order and fill stages need a live ru
 
 ## 4. Gates for real orders
 
-A live run (`native-sniper-live` / `native-wvad-live` / `native-sats-live`) needs **all** of these:
+A live run (`native-wvad-live`) needs **all** of these:
 
 | # | Gate | Where |
 |---|---|---|
@@ -249,7 +251,7 @@ then flattens) if:
 Live startup also requires the account to be completely flat. As a result:
 * **two slots cannot trade live on the same account at the same time**, even on different
   instruments: each would see the other's position as unmanaged exposure;
-* Sniper and SATS on the same contract would also clash on the position check;
+* two strategies on the same contract would also clash on the position check;
 * **no manual trading in that account** while a slot is live. A manual position or order halts
   the bot.
 
@@ -267,7 +269,7 @@ A second live instrument would need its own settings file (and, per 5.1, its own
 * At most **4 slots** per manifest.
 * **MCX and NFO** futures only.
 * Product **MIS** only (intraday; everything is flat at the square-off).
-* Only `sniper` and `sats` have runners. The NIFTY and GOLD slots are placeholders
+* Only `wvad` has a runner (`sniper` and `sats` are parked in `backup/`). The NIFTY and GOLD slots are placeholders
   (`unassigned`, token 0) until a strategy is written and approved for them.
 
 ### 5.4 Manual rollover
@@ -285,8 +287,8 @@ Each month is a new slot (section 6).
 
 ### 5.6 No crash recovery
 
-If the process dies, nothing in the program protects an open position until you act: a SATS
-SL-M already resting at Kite still protects it; a Sniper position has only MIS auto square-off.
+If the process dies, nothing in the program protects an open position until you act: a WVAD
+position has no resting stop at Kite, only MIS auto square-off.
 Check positions and open orders in Kite, square off if needed, then start again; the startup
 check refuses a non-flat account or one with open orders (section 3.4).
 
@@ -304,17 +306,17 @@ CRUDEOILM expires around the 19th; roll a few days before.
    token, expiry.
 2. **Add a new slot** in `config/portfolio-production.json` (keep the old one, set it
    `enabled: false`):
-   * `id`: `crudeoilm-sniper-202611`;
+   * `id`: `crudeoilm-wvad-202611`;
    * `instrument`: `CRUDEOILM26NOVFUT.MCX`, plus the new `instrument_token`;
-   * `rollover`: `strategy_id` `crudeoilm-sniper`, `contract_month` `2026-11`, the new
+   * `rollover`: `strategy_id` `crudeoilm-wvad`, `contract_month` `2026-11`, the new
      `expected_expiry`, `lot_size` 1;
    * `enabled: true`, `live_orders_enabled: true`.
    (With 4 slots already listed, remove an unused placeholder first.)
 3. **Update the strategy config**: `symbol` and `instrument_token` in
-   `config/sniper-crudeoilm.json` (Sniper; SATS takes them from the slot).
+   `config/wvad-crudeoilm.json`.
 4. **Update the broker settings**: `instrument_token` in `config/kite-production.json`.
-5. **Update the launch script**: `SLOT=` in `deploy/run-sniper-*.sh`.
-6. **Validate**: `native-portfolio-validate`, then `native-sniper-live-preflight`, then a
+5. **Update the launch script**: `SLOT=` in `deploy/run-wvad-*.sh`.
+6. **Validate**: `native-portfolio-validate`, then `native-wvad-live-preflight`, then a
    paper run.
 
 ---
@@ -322,7 +324,7 @@ CRUDEOILM expires around the 19th; roll a few days before.
 ## 7. Adding a slot for a new strategy or instrument
 
 1. Write the strategy (engine crate + config + live strategy + runner + backtest), following
-   Sniper or SATS.
+   WVAD (a new bar model implements `BarModel` and `ModelParams` and reuses the shared runner).
 2. Add the slot with `enabled: false`, `live_orders_enabled: false`, a real token and its
    config file.
 3. Backtest, then paper-trade (paper runs work while the slot is disabled).
@@ -331,4 +333,4 @@ CRUDEOILM expires around the 19th; roll a few days before.
 
 ---
 
-Related: `doc/SNIPER_STRATEGY.md`, `doc/SATS_STRATEGY.md`.
+Related: `doc/WVAD_STRATEGY.md`; parked: `backup/doc/SNIPER_STRATEGY.md`, `backup/doc/SATS_STRATEGY.md`.

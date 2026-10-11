@@ -1,7 +1,8 @@
-//! The interface between a strategy's bar-by-bar trade model (crates `sniper`, `wvad`) and
-//! the shared runner (`model_strategy`, `model_backtest`, `model_live`). Every model speaks
-//! `sniper::Bar` in and `sniper::Event` out: Entry → Partial (TP1 / TP2) → Exit.
-use sniper::{Bar, Event};
+//! The interface between a strategy's bar-by-bar trade model (crate `wvad`; Precision Sniper
+//! is parked in `backup/`) and the shared runner (`model_strategy`, `model_backtest`,
+//! `model_live`). Every model speaks `wvad::Bar` in and `wvad::Event` out:
+//! Entry → Partial (TP1 / TP2) → Exit.
+use wvad::{Bar, Event};
 use std::collections::BTreeMap;
 
 /// The open model trade, as the runner needs it.

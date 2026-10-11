@@ -2,7 +2,7 @@
 name = "wvad"
 # Port of "Williams Variable A/D Pressure [MarkitTick]" (TradingView Pine v6, no version
 # string in the source). Bump on every change.
-version = "1.0.0"
+version = "1.1.0"
 edition.workspace = true
 rust-version.workspace = true
 publish = false
@@ -13,7 +13,7 @@ description = "Bar-for-bar Rust port of Williams Variable A/D Pressure [MarkitTi
 
 [dependencies]
 serde.workspace = true
-sniper = { path = "../sniper" }
+nautilus-indicators.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

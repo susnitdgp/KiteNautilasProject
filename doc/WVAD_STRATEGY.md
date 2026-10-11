@@ -1,10 +1,10 @@
 # WVAD — Williams Variable A/D Pressure strategy reference
 
 Rust port of the TradingView indicator **Williams Variable A/D Pressure [MarkitTick]**
-(Pine v6), run on **CRUDEOILM** 3-minute bars as an intraday MIS strategy through the same
-runner, execution client, safety rules and dashboard as Precision Sniper.
+(Pine v6), run on **CRUDEOILM** 3-minute bars as an intraday MIS strategy through the generic
+bar-model runner (the one Precision Sniper used before it was parked in `backup/`).
 
-Written for kite-node 2.27.0 / wvad 1.0.0.
+Written for kite-node 2.28.0 / wvad 1.1.0 (the active strategy; Sniper and SATS are parked).
 
 **Licence.** The Pine source is © MarkitTick under CC BY-NC-SA 4.0
 (https://creativecommons.org/licenses/by-nc-sa/4.0/). `crates/wvad` is a derivative work
@@ -13,9 +13,9 @@ under the same licence: keep the attribution, non-commercial use only, share-ali
 | Item | Where |
 |---|---|
 | Signal and trade model (pure, no I/O) | `crates/wvad` (`engine.rs`, `params.rs`, `filters.rs`) |
-| Pine-exact moving averages and filters | `crates/wvad/src/filters.rs` (ATR and ADX reuse `sniper::nt`) |
+| Pine-exact moving averages and filters | `crates/wvad/src/filters.rs`; ATR and ADX in `crates/wvad/src/nt.rs` (`nautilus-indicators`) |
 | Hook-up to the shared runner | `apps/kite-node/src/native_node/wvad_model.rs` |
-| Slot settings, live strategy, runner, backtest (shared with Sniper) | `slot_config.rs`, `model_strategy.rs`, `model_live.rs`, `model_backtest.rs` |
+| Slot settings, live strategy, runner, backtest | `slot_config.rs`, `model_strategy.rs`, `model_live.rs`, `model_backtest.rs` |
 | Config | `config/wvad-crudeoilm.json` |
 | Portfolio slot | `crudeoilm-wvad-202610` (disabled, live orders off: paper only) |
 | Scripts | `deploy/run-wvad-paper.sh`, `deploy/run-wvad-live.sh` |
@@ -52,7 +52,7 @@ filters (both off in the script's defaults and in the shipped config):
 | Bar with both stop and a target | Stop first (counted as ambiguous) |
 
 Live, every bid/ask quote is checked against the stop and targets (bid for a long, ask for a
-short) and a target needs `tp_through_ticks` (1) beyond the level, exactly as for Sniper.
+short) and a target needs `tp_through_ticks` (1) beyond the level.
 
 ### 2.1 Differences from the script
 
@@ -68,7 +68,7 @@ short) and a target needs `tp_through_ticks` (1) beyond the level, exactly as fo
 
 ## 3. Settings
 
-### 3.1 Slot (same keys as Sniper)
+### 3.1 Slot
 
 | Key | Shipped | Meaning |
 |---|---|---|
@@ -78,7 +78,7 @@ short) and a target needs `tp_through_ticks` (1) beyond the level, exactly as fo
 | `lots`, `tp1_lots`, `tp2_lots` | 3, 1, 1 | TP1 and TP2 close one lot each, the last lot runs to TP3 / stop |
 | `point_value` | 10 | ₹ per point per lot |
 | `round_trip_cost_points`, `brokerage_per_order`, `slippage_points_per_side` | 2.0, 20, 1.0 | Backtest costs |
-| `entries_until`, `square_off`, `entry_blackouts` | 23:00, 23:15, none | As Sniper |
+| `entries_until`, `square_off`, `entry_blackouts` | 23:00, 23:15, none | No entries on signal bars closing at/after 23:00 IST or inside a blackout; flatten on the 23:15 bar |
 
 ### 3.2 `params` (the Pine inputs)
 
@@ -114,7 +114,7 @@ slippage) take most of the edge. The ADX and HTF filters reduce the count.
 | Backtest | `./target/release/kite-node native-wvad-backtest config/wvad-crudeoilm.json 2026-09-19 2026-10-09` |
 | Paper run | `deploy/run-wvad-paper.sh` |
 | Live preflight only | `./target/release/kite-node native-wvad-live-preflight config/portfolio-production.json crudeoilm-wvad-202610 config/kite-production.json` |
-| Live run | `deploy/run-wvad-live.sh` (needs the slot enabled with live orders, and no other live slot on the account) |
+| Live run | `deploy/run-wvad-live.sh` (needs the slot enabled with live orders; both are off now) |
 
 Logs use the `wvad_` prefix (`wvad_signal`, `wvad_order`, `wvad_bar`, ...); results go to
 `backtest_results/wvad/<symbol>/<time>/`.

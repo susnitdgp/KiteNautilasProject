@@ -1,0 +1,37 @@
+{
+  "note": "Sniper and SATS slots parked from config/portfolio-production.json on 2026-10-11; add them back to restore (max 4 slots).",
+  "instances": [
+    {
+      "id": "crudeoilm-sats-202610",
+      "enabled": false,
+      "strategy": "sats",
+      "instrument": "CRUDEOILM26OCTFUT.MCX",
+      "instrument_token": 145894663,
+      "strategy_config": "config/sats-crudeoilm.json",
+      "live_orders_enabled": true,
+      "rollover": {
+        "strategy_id": "crudeoilm-sats",
+        "contract_month": "2026-10",
+        "expected_expiry": "2026-10-19",
+        "lot_size": 1,
+        "next_contract": null
+      }
+    },
+    {
+      "id": "crudeoilm-sniper-202610",
+      "enabled": true,
+      "strategy": "sniper",
+      "instrument": "CRUDEOILM26OCTFUT.MCX",
+      "instrument_token": 145894663,
+      "strategy_config": "config/sniper-crudeoilm.json",
+      "live_orders_enabled": true,
+      "rollover": {
+        "strategy_id": "crudeoilm-sniper",
+        "contract_month": "2026-10",
+        "expected_expiry": "2026-10-19",
+        "lot_size": 1,
+        "next_contract": null
+      }
+    }
+  ]
+}

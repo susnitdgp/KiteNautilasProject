@@ -1,4 +1,4 @@
-//! Live state of one slot run (any strategy: Sniper, SATS) for the web dashboard.
+//! Live state of one slot run (any strategy: WVAD; Sniper / SATS parked in backup/) for the web dashboard.
 //! Strategy-specific content comes from the strategy: the header `title`, and either
 //! its own `model_title` / `model_rows` panel or (SATS) the trend-model fields.
 //!
@@ -40,7 +40,7 @@ pub struct Board {
     pub redis_namespace: String,
     pub point_value: f64,
     pub lots: u32,
-    /// Header title, set by the strategy runner (e.g. "SNIPER v2.1.0 · 3m Aggressive").
+    /// Header title, set by the strategy runner (e.g. "WVAD v1.1.0 · 3m WVAD 20 · Sma 9 ...").
     pub title: String,
     /// Model panel: title and rows. Empty rows = the trend-model fields below.
     pub model_title: String,
@@ -302,10 +302,10 @@ mod tests {
 
     #[test]
     fn snapshot_json_has_the_dashboard_fields_and_no_pending_queue() {
-        let mut b = Board { slot: "crudeoilm-sniper-202610".into(), status: "RUNNING".into(), ..Board::default() };
+        let mut b = Board { slot: "crudeoilm-wvad-202610".into(), status: "RUNNING".into(), ..Board::default() };
         b.event("hello".into());
         let v = serde_json::to_value(&b).unwrap();
-        assert_eq!(v["slot"], "crudeoilm-sniper-202610");
+        assert_eq!(v["slot"], "crudeoilm-wvad-202610");
         assert_eq!(v["status"], "RUNNING");
         assert!(v["events"][0].as_str().unwrap().ends_with("hello"));
         assert!(v.get("pending").is_none());

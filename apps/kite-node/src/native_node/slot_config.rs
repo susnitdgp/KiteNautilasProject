@@ -1,4 +1,4 @@
-//! Slot settings (JSON) shared by every bar-model strategy (Precision Sniper, WVAD):
+//! Slot settings (JSON) shared by every bar-model strategy (WVAD; Sniper parked in backup/):
 //! contract, lots and partial exits, costs, entry window and square-off, plus the
 //! strategy's own `params`. Used by the backtest and the live runner.
 use super::bar_model::BarModel;
@@ -11,9 +11,9 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 pub trait ModelParams: Clone + std::fmt::Debug + Default + PartialEq + Serialize + DeserializeOwned + 'static {
     /// `strategy` value in the config and the portfolio; also the log-event prefix.
     const STRATEGY: &'static str;
-    /// Upper-case name for titles, strategy ids and console notes ("SNIPER").
+    /// Upper-case name for titles, strategy ids and console notes ("WVAD").
     const NAME: &'static str;
-    /// Model name for the dashboard and reports ("Precision Sniper").
+    /// Model name for the dashboard and reports ("Williams Variable A/D Pressure").
     const MODEL_TITLE: &'static str;
     /// Version of the ported source, shown in the title.
     const SOURCE_VERSION: &'static str;

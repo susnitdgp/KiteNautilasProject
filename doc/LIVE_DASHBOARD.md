@@ -1,6 +1,6 @@
 # Live dashboard data (Redis)
 
-A running Sniper or SATS slot publishes its live state to the **dashboard Redis**, for a web
+A running WVAD slot (Sniper and SATS are parked in `backup/`) publishes its live state to the **dashboard Redis**, for a web
 dashboard to read. Since kite-node 2.21.2 that is the box's own Redis, **database 1**
 (`redis://127.0.0.1:6379/1`): local, no network hop, nothing leaves the box, and the dashboard
 keys stay apart from the trading keys in database 0. Written for kite-node 2.21.2.
@@ -40,7 +40,7 @@ credentials are ever written to this Redis; the URL is never logged.
 
 ## 3. Keys
 
-Base: `<redis_prefix>:v1:{<slot>}:dash`, e.g. `kite-prod:v1:{crudeoilm-sniper-202610}:dash`
+Base: `<redis_prefix>:v1:{<slot>}:dash`, e.g. `kite-prod:v1:{crudeoilm-wvad-202610}:dash`
 (the portfolio key scheme; the startup JSON log line `*_node_started` lists all three keys).
 Keys are per slot, so the dashboard always shows the slot's latest run.
 
@@ -69,7 +69,7 @@ few seconds = the bot is stopped or cannot reach this Redis.
 | `history_bars`, `live_bars`, `bar_ns` | Bar counts; bar length in ns (next-bar countdown = next multiple of `bar_ns`) |
 | `feed_fault` | Market-data fault or `null` |
 | `warmed`, `trend` | Model warmed up; trend 1 / -1 / 0 |
-| `model_title`, `model_rows` | Model panel title and `[label, value]` rows (Sniper: EMAs, score, ADX/RSI). Empty rows = SATS panel |
+| `model_title`, `model_rows` | Model panel title and `[label, value]` rows (WVAD: WVAD / signal, strength, ADX / HTF). Empty rows = SATS panel (parked) |
 | `supertrend`, `tqi`, `regime`, `next_r` | SATS panel values |
 | `exit_rule` | Exit plan text |
 | `position`, `entry_avg` | Signed lots from broker fills; average entry |
@@ -82,9 +82,9 @@ few seconds = the bot is stopped or cannot reach this Redis.
 ## 5. Reading it
 
 ```bash
-redis-cli -n 1 HGET 'kite-prod:v1:{crudeoilm-sniper-202610}:dash:state' snapshot
-redis-cli -n 1 XREVRANGE 'kite-prod:v1:{crudeoilm-sniper-202610}:dash:events' + - COUNT 20
-redis-cli -n 1 SUBSCRIBE 'kite-prod:v1:{crudeoilm-sniper-202610}:dash:live'
+redis-cli -n 1 HGET 'kite-prod:v1:{crudeoilm-wvad-202610}:dash:state' snapshot
+redis-cli -n 1 XREVRANGE 'kite-prod:v1:{crudeoilm-wvad-202610}:dash:events' + - COUNT 20
+redis-cli -n 1 SUBSCRIBE 'kite-prod:v1:{crudeoilm-wvad-202610}:dash:live'
 ```
 
 A web dashboard: read the snapshot and the latest stream entries on page load, then

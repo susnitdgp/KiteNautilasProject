@@ -1,5 +1,7 @@
 [workspace]
-members = ["crates/kite-adapter", "apps/kite-node", "crates/kite-journal", "crates/kite-execution", "crates/sats", "crates/sniper", "crates/wvad"]
+members = ["crates/kite-adapter", "apps/kite-node", "crates/kite-journal", "crates/kite-execution", "crates/wvad"]
+# Sniper and SATS are parked in backup/ (not built); see backup/README.md.
+exclude = ["backup"]
 resolver = "2"
 
 [workspace.package]

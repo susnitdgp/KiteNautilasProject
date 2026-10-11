@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# disable-ipv6.sh v1.0.1
+# disable-ipv6.sh v1.0.2
 # Turns IPv6 off on this box (now and after reboot) so every outbound
 # connection - including Kite order calls - uses the registered static IPv4.
 # Safe for this host: SSH and Redis also listen on IPv4.
@@ -8,8 +8,8 @@ set -euo pipefail
 
 CONF=/etc/sysctl.d/99-disable-ipv6.conf
 
-if pgrep -f "kite-node native-sats-live" >/dev/null; then
-  echo "A live SATS run is active. Stop it (Ctrl+C) before changing the network." >&2
+if pgrep -f "kite-node native-[a-z]+-live" >/dev/null; then
+  echo "A live trading run is active. Stop it (Ctrl+C) before changing the network." >&2
   exit 1
 fi
 

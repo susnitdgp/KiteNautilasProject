@@ -1,4 +1,4 @@
-//! Nautilus LiveNode runner for one bar-model portfolio slot (`sniper`, `wvad`).
+//! Nautilus LiveNode runner for one bar-model portfolio slot (`wvad`).
 //!
 //! * `paper`: live Kite market data, orders filled by the native Kite **mock**
 //!   execution client (in memory). Never touches the broker's order API.

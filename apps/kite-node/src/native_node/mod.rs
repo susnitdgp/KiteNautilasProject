@@ -13,16 +13,10 @@ pub mod status;
 mod synthetic;
 #[cfg(test)]
 mod test_support;
-mod sats_backtest;
 mod model_backtest;
 mod model_live;
 mod model_strategy;
 mod slot_config;
-mod sniper_model;
 mod wvad_model;
-pub mod sats_config;
 mod dash_writer;
 mod dashboard;
-mod sats_live;
-mod sats_strategy;
-mod sats_trail;

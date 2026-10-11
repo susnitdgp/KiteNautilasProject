@@ -5,11 +5,8 @@ use crate::{
     filters::{Adaptive, Highest, Sma},
     params::Params,
 };
+use crate::nt::{Atr, Dmi};
 use serde::Serialize;
-use sniper::{
-    Bar, Event,
-    nt::{Atr, Dmi},
-};
 
 const IST_OFFSET: i64 = 19_800;
 /// MCX session open, seconds after IST midnight: higher-timeframe buckets start here.
@@ -17,6 +14,29 @@ const SESSION_OPEN_SECS: i64 = 9 * 3600;
 /// Window of the script's "Strength" (|WVAD| / its 100-bar high).
 const STRENGTH_LEN: usize = 100;
 const VOLUME_MEAN_LEN: usize = 20;
+
+/// One confirmed bar; `start` is epoch seconds (UTC) of its open.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Bar {
+    pub start: i64,
+    pub open: f64,
+    pub high: f64,
+    pub low: f64,
+    pub close: f64,
+    pub volume: f64,
+}
+
+/// Model events, in order: Entry → Partial (TP1 / TP2) → Exit.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub enum Event {
+    Entry { dir: i32, price: f64, stop: f64, tp1: f64, tp2: f64, tp3: f64, score: f64, score_max: f64, grade: &'static str, origin: &'static str },
+    /// Part of the position closed at TP1 (`level` 1) or TP2 (`level` 2); `fraction` of
+    /// the original size.
+    Partial { dir: i32, level: u8, price: f64, fraction: f64 },
+    /// The rest of the position closed; `fraction` = what was still open, `gross_r` = the
+    /// whole trade's gross R including earlier partials.
+    Exit { dir: i32, price: f64, reason: &'static str, fraction: f64, gross_r: f64, ambiguous: bool },
+}
 
 #[derive(Clone, Debug)]
 pub struct Trade {

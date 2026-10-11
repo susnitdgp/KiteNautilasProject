@@ -1,4 +1,4 @@
-//! Read-only bar-model replay (Precision Sniper, WVAD) on Kite history with MIS execution.
+//! Read-only bar-model replay (WVAD) on Kite history with MIS execution.
 //! Never places orders.
 //!
 //! The model runs bar for bar exactly like its Pine script: entry at the signal bar close,
@@ -16,7 +16,7 @@ use anyhow::{Result, ensure};
 use chrono::{DateTime, Duration, FixedOffset, NaiveDate};
 use kite_adapter::http::historical::{Candle, Interval, Reader};
 use serde::Serialize;
-use sniper::{Bar, Event};
+use wvad::{Bar, Event};
 use std::{collections::BTreeMap, fmt::Write as _, path::PathBuf};
 
 /// Calendar days fetched before FROM for warm-up (EMA trend × 3, ATR mean, MACD).
@@ -363,12 +363,9 @@ pub fn run<P: ModelParams>(config_path: &str, from: &str, to: &str) -> Result<()
 
 #[cfg(test)]
 mod tests {
-    use super::super::{sniper_model::SniperConfig, wvad_model::WvadConfig};
+    use super::super::wvad_model::WvadConfig;
     use super::*;
-    fn shipped() -> SniperConfig {
-        serde_json::from_str(include_str!("../../../../config/sniper-crudeoilm.json")).unwrap()
-    }
-    fn shipped_wvad() -> WvadConfig {
+    fn shipped() -> WvadConfig {
         serde_json::from_str(include_str!("../../../../config/wvad-crudeoilm.json")).unwrap()
     }
     /// 12 synthetic days of 3m bars, 09:00-23:30 IST.
@@ -407,10 +404,13 @@ mod tests {
     #[test]
     fn three_lots_scale_out_and_every_lot_pays_costs() {
         let c = shipped();
-        let (rows, _) = replay(&c, &bars(), chrono::NaiveDate::from_ymd_opt(2026, 9, 1).unwrap());
+        let (rows, engine) = replay(&c, &bars(), chrono::NaiveDate::from_ymd_opt(2026, 9, 1).unwrap());
         check(&c, &rows);
         assert!(rows.iter().any(|r| r.orders > 2), "some trade should scale out at TP1");
         assert!(rows.iter().all(|r| if r.flip_entry { (1..=3).contains(&r.orders) } else { (2..=4).contains(&r.orders) }));
+        assert!(rows.iter().all(|r| ["SL", "TP3", "Reversal", "Square-off"].contains(&r.exit_reason)), "fixed stop: no step-stop exits");
+        assert!(engine.candidates() as usize >= rows.len());
+        assert!(engine.describe().starts_with("WVAD 20"));
     }
     #[test]
     fn whole_position_variant_uses_two_orders() {
@@ -422,15 +422,5 @@ mod tests {
         let (rows, _) = replay(&c, &bars(), chrono::NaiveDate::from_ymd_opt(2026, 9, 1).unwrap());
         check(&c, &rows);
         assert!(rows.iter().all(|r| r.orders == if r.flip_entry { 1 } else { 2 }));
-    }
-    #[test]
-    fn wvad_replays_with_the_same_execution_layer() {
-        let c = shipped_wvad();
-        let (rows, engine) = replay(&c, &bars(), chrono::NaiveDate::from_ymd_opt(2026, 9, 1).unwrap());
-        check(&c, &rows);
-        assert!(rows.iter().any(|r| r.orders > 2), "some WVAD trade should scale out at TP1");
-        assert!(rows.iter().all(|r| ["SL", "TP3", "Reversal", "Square-off"].contains(&r.exit_reason)), "fixed stop: no step-stop exits");
-        assert!(engine.candidates() as usize >= rows.len());
-        assert!(engine.describe().starts_with("WVAD 20"));
     }
 }

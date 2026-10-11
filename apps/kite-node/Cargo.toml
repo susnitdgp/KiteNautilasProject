@@ -1,6 +1,6 @@
 [package]
 name = "kite-node"
-version = "2.27.0"
+version = "2.28.0"
 edition.workspace = true
 rust-version.workspace = true
 publish = false
@@ -20,8 +20,6 @@ serde_json.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 tokio.workspace = true
 
-sats = { path = "../../crates/sats" }
-sniper = { path = "../../crates/sniper" }
 wvad = { path = "../../crates/wvad" }
 
 nautilus-trading.workspace = true

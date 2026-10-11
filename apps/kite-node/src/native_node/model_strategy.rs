@@ -1,6 +1,6 @@
-//! Nautilus strategy for one bar-model portfolio slot (`sniper`: Precision Sniper v2.1.0,
-//! `wvad`: Williams Variable A/D Pressure). Log events are prefixed with the strategy
-//! name (`sniper_signal`, `wvad_order`, ...).
+//! Nautilus strategy for one bar-model portfolio slot (`wvad`: Williams Variable A/D
+//! Pressure; Precision Sniper used it too and is parked in `backup/`). Log events are
+//! prefixed with the strategy name (`wvad_signal`, `wvad_order`, ...).
 //!
 //! The model (see `bar_model`) is the single source of trade decisions; this module turns
 //! its events into a TARGET POSITION and moves the broker position toward it with one
@@ -46,7 +46,7 @@ use nautilus_trading::{
     nautilus_strategy,
     strategy::{Strategy, StrategyConfig, StrategyCore},
 };
-use sniper::Event;
+use wvad::Event;
 use std::sync::{
     Arc,
     atomic::Ordering,
@@ -127,7 +127,7 @@ struct Live {
 #[derive(Debug)]
 pub struct ModelStrategy {
     core: StrategyCore,
-    /// Strategy name: log-event prefix ("sniper").
+    /// Strategy name: log-event prefix ("wvad").
     name: &'static str,
     guard_timer: String,
     instance_id: String,
@@ -214,7 +214,7 @@ impl ModelStrategy {
         }
     }
 
-    /// Log event name with the strategy prefix: `event("signal")` → "sniper_signal".
+    /// Log event name with the strategy prefix: `event("signal")` → "wvad_signal".
     fn event(&self, what: &str) -> String {
         format!("{}_{what}", self.name)
     }
@@ -487,7 +487,7 @@ impl DataActor for ModelStrategy {
         }
         self.last_close_ns = close_ns;
         let close_s = close_ns / 1_000_000_000;
-        let input = sniper::Bar {
+        let input = wvad::Bar {
             start: close_s - self.bar_ns / 1_000_000_000,
             open: bar.open.as_f64(),
             high: bar.high.as_f64(),

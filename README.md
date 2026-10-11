@@ -1,47 +1,35 @@
 # Rust NautilusTrader / Zerodha Kite Research Workspace
 
-NautilusTrader 0.64 workspace for Zerodha Kite Connect: the Kite adapter (market data, instruments, history, native execution client), Precision Sniper (the main strategy, CRUDEOILM), WVAD (Williams Variable A/D Pressure, `doc/WVAD_STRATEGY.md`) and SATS, with backtests, paper runs and gated live runs. Real orders need a `live-orders` build, the slot and broker-settings gates and a typed `LIVE` (see `doc/PORTFOLIO_SLOTS.md`).
+NautilusTrader 0.64 workspace for Zerodha Kite Connect: the Kite adapter (market data, instruments, history, native execution client) and **WVAD** (Williams Variable A/D Pressure, CRUDEOILM), with backtests, paper runs and gated live runs. Real orders need a `live-orders` build, the slot and broker-settings gates and a typed `LIVE` (see `doc/PORTFOLIO_SLOTS.md`).
+
+Precision Sniper and SATS are **parked** in `backup/` (not built or run); `backup/README.md` says how to bring them
+back. Their last runnable state is the branch `backup-2026-10-11-sniper-sats-wvad`.
 
 ## WVAD (Rust port)
 
 `crates/wvad` ports Williams Variable A/D Pressure [MarkitTick] (CC BY-NC-SA 4.0): WVAD sum, adaptive filter,
-signal-line crossover with optional ADX / higher-timeframe filters, ATR stop and 1R/2R/3R targets. Precision Sniper and
-WVAD share one runner (`slot_config`, `model_strategy`, `model_live`, `model_backtest`), so WVAD has the same execution,
-safety and dashboard. `native-wvad-backtest CONFIG FROM TO`, `native-wvad-paper PORTFOLIO INSTANCE`; see
-`doc/WVAD_STRATEGY.md`.
+signal-line crossover with optional ADX / higher-timeframe filters, ATR stop and 1R/2R/3R targets. It runs on the
+generic bar-model runner (`slot_config`, `model_strategy`, `model_live`, `model_backtest`). See `doc/WVAD_STRATEGY.md`.
 
-## SATS v1.13.1 (Rust port)
+Backtest (read-only, Kite historical candles, no orders):
 
-`crates/sats` is a bar-for-bar port of the Self-Aware Trend System v1.13.1 (WillyAlgoTrader): presets, adaptive
-asymmetric SuperTrend with Trend Quality Index and character-flip, score, dynamic TPs, the script's single model
-position (SL-first, thirds at TP1/TP2, TP3, flip and timeout exits, tick rounding, fees, slippage) and the
-experimental self-learning calibration. All inputs live in the slot's own JSON (`config/sats-crudeoilm.json`).
+    ./target/release/kite-node native-wvad-backtest config/wvad-crudeoilm.json 2026-09-19 2026-10-09
 
-Backtest a slot (read-only, Kite historical candles, no orders):
+Writes `backtest_results/wvad/<symbol>/<run>/summary.txt`, `summary.json` and `trades.csv`.
 
-    ./target/release/kite-node native-sats-backtest config/portfolio-development.example.json crudeoilm-sats-202610 2026-09-01 2026-10-08
+### Running WVAD on the market (CRUDEOILM slot `crudeoilm-wvad-202610`)
 
-Writes `backtest_results/sats/<slot>/<run>/summary.json` and `trades.csv`: the `model_*` columns reproduce the
-script's own R accounting (TradingView trader card); the `exec_*` columns apply the slot's `execution` settings
-(lots, thirds or single exit, next-open market fills, slippage, round-trip cost).
-
-### Running SATS on the market (CRUDEOILM slot)
-
-Settings: `config/sats-crudeoilm.json` (5m, Dynamic TP, 1 lot, full exit at TP1, square-off 23:15 IST, MIS),
-calendar `config/mcx-session-calendar.json` (reviewed through the contract expiry 2026-10-19).
-
-* Paper (live Kite data, Kite mock execution, no broker orders): `deploy/run-sats-paper.sh`
-* Live (REAL Zerodha orders):
+* Paper (live Kite data, Kite mock execution, no broker orders): `deploy/run-wvad-paper.sh`
+* Live (REAL Zerodha orders), only after you enable it:
   1. `cargo build --release --features live-orders`
-  2. `config/portfolio-production.json` has the slot `enabled` and `live_orders_enabled`
+  2. `config/portfolio-production.json` has the slot `enabled` and `live_orders_enabled` (both off now)
   3. local, git-ignored `config/kite-production.json` has `live_orders_enabled: true` and your Kite user ID
-  4. `deploy/run-sats-live.sh` runs the preflight, then asks you to type `LIVE`
+  4. `deploy/run-wvad-live.sh` runs the preflight, then asks you to type `LIVE`
 
-Each run covers one trading day: start it after 09:00 IST; it warms SATS on broker-finalised history, trades,
+Each run covers one trading day: start it after 09:00 IST; it warms the model on broker-finalised history, trades,
 flattens on the 23:15 bar and stops. A WebSocket gap, reconnect or invalid packet fails closed (flatten + stop),
-any order rejection or position mismatch halts new orders and flattens. The bar in progress when the feed
-connects is skipped (its ticks cannot be proven complete), so SATS sees a one-bar gap at start-up.
-Logs (JSON lines) go to `logs/`. After the contract expiry, roll the slot (instrument, token, rollover block).
+any order rejection or position mismatch halts new orders and flattens. Logs (JSON lines) go to `logs/`.
+After the contract expiry (2026-10-19), roll the slot (instrument, token, rollover block).
 
 ### State outside the process (named from the portfolio manifest)
 
