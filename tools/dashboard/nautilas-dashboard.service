@@ -1,0 +1,25 @@
+# nautilas-dashboard.service v1.0.0
+# systemd unit for the Streamlit live dashboard (tools/dashboard/run.sh) on 127.0.0.1:8501,
+# served publicly by nginx at https://nautilas.awsgoswami.com. Starts at boot, restarts on
+# failure. Read-only view of the dashboard Redis: it never affects trading.
+# Install (one-time, needs sudo):
+#   sudo cp tools/dashboard/nautilas-dashboard.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now nautilas-dashboard
+[Unit]
+Description=Nautilas live dashboard (Streamlit, 127.0.0.1:8501)
+Wants=network-online.target
+After=network-online.target redis-server.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/RustNautilasProject
+ExecStart=/home/ubuntu/RustNautilasProject/tools/dashboard/run.sh
+Restart=always
+RestartSec=5
+# low priority: the trading process always comes first
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

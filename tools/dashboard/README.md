@@ -10,15 +10,28 @@ Served at https://nautilas.awsgoswami.com (Cloudflare → nginx with a password 
 | `run.sh` | Starts it on `127.0.0.1:8501` (creates `.venv` on first run) |
 | `requirements.txt` | Pinned packages |
 | `nginx-dashboard.conf` | nginx site for nautilas.awsgoswami.com: password, forwarding to `127.0.0.1:8501` |
+| `nautilas-dashboard.service` | systemd unit: runs `run.sh` at boot, restarts on failure |
+| `service.sh` | install / start / stop / restart / status / logs for that service |
 
 ## Run
+
+In production it runs as the systemd service `nautilas-dashboard`:
+
+```bash
+tools/dashboard/service.sh install   # one-time
+tools/dashboard/service.sh status    # start | stop | restart | logs | logs-today | check
+```
+
+Full guide: `doc/DASHBOARD_SERVICE.md`.
+
+By hand (development, or the demo data):
 
 ```bash
 tools/dashboard/run.sh                        # kite-prod (the bot)
 DASH_PREFIX=kite-demo tools/dashboard/run.sh  # demo data (python3 tools/dashboard/wvad_demo.py: one WVAD slot from a backtest day)
 ```
 
-Keep it running in tmux: `tmux new -d -s dash tools/dashboard/run.sh` (attach: `tmux attach -t dash`).
+Stop the service first (`tools/dashboard/service.sh stop`): both use port 8501.
 
 ## nginx with a password (one-time, needs sudo)
 
