@@ -1,4 +1,4 @@
-//! Nautilus LiveNode runner for one `sniper` portfolio slot (Precision Sniper v2.1.0).
+//! Nautilus LiveNode runner for one bar-model portfolio slot (`sniper`, `wvad`).
 //!
 //! * `paper`: live Kite market data, orders filled by the native Kite **mock**
 //!   execution client (in memory). Never touches the broker's order API.
@@ -15,10 +15,10 @@ use super::{
     data, live_bars, live_control::Control,
     dash_writer::{self, DashboardConfig},
     dashboard::{Board, emit, note},
+    model_strategy::ModelStrategy,
     portfolio::{Instance, Portfolio},
-    sniper_config::{self, SniperConfig},
-    sniper_strategy::SniperStrategy,
     session_calendar::Calendar,
+    slot_config::{ModelParams, SlotConfig},
 };
 use anyhow::{Context, Result, bail, ensure};
 use chrono::{FixedOffset, NaiveDate, TimeZone};
@@ -46,18 +46,18 @@ fn ist() -> FixedOffset {
 }
 
 /// Everything checked before a node is built.
-struct Prepared {
+struct Prepared<P> {
     inst: Instance,
     keys: KeySpace,
     trader_id: String,
-    config: SniperConfig,
+    config: SlotConfig<P>,
     instrument: FuturesContract,
     warmup: Vec<Candle>,
     start_ns: u64,
     run_seconds: u64,
 }
 
-fn load_slot(portfolio_path: &str, instance_id: &str) -> Result<(Instance, SniperConfig, KeySpace, String)> {
+fn load_slot<P: ModelParams>(portfolio_path: &str, instance_id: &str) -> Result<(Instance, SlotConfig<P>, KeySpace, String)> {
     let portfolio: Portfolio = serde_json::from_str(
         &std::fs::read_to_string(portfolio_path).with_context(|| format!("Cannot read {portfolio_path}"))?,
     )?;
@@ -69,9 +69,9 @@ fn load_slot(portfolio_path: &str, instance_id: &str) -> Result<(Instance, Snipe
         .into_iter()
         .find(|v| v.id == instance_id)
         .ok_or_else(|| anyhow::anyhow!("No portfolio instance {instance_id}"))?;
-    ensure!(inst.strategy == sniper_config::STRATEGY, "Instance {instance_id} does not run sniper");
+    ensure!(inst.strategy == P::STRATEGY, "Instance {instance_id} does not run {}", P::STRATEGY);
     ensure!(inst.instrument_token != 0, "Instance {instance_id} needs a verified instrument token");
-    let config = SniperConfig::load(&inst.strategy_config)?;
+    let config = SlotConfig::<P>::load(&inst.strategy_config)?;
     ensure!(
         format!("{}.MCX", config.symbol) == inst.instrument && config.instrument_token == inst.instrument_token,
         "Strategy config symbol/token {} {} differ from the slot {} {}",
@@ -93,7 +93,7 @@ fn load_broker(path: &str, inst: &Instance) -> Result<Settings> {
     Ok(settings)
 }
 
-fn live_gates(inst: &Instance, config: &SniperConfig, settings: &Settings) -> Result<()> {
+fn live_gates<P: ModelParams>(inst: &Instance, config: &SlotConfig<P>, settings: &Settings) -> Result<()> {
     ensure!(cfg!(feature = "live-orders"), "Real orders need a `cargo build --release --features live-orders` binary");
     ensure!(
         settings.max_lots >= config.lots,
@@ -106,8 +106,8 @@ fn live_gates(inst: &Instance, config: &SniperConfig, settings: &Settings) -> Re
     Ok(())
 }
 
-fn prepare(portfolio_path: &str, instance_id: &str) -> Result<Prepared> {
-    let (inst, config, keys, trader_id) = load_slot(portfolio_path, instance_id)?;
+fn prepare<P: ModelParams>(portfolio_path: &str, instance_id: &str) -> Result<Prepared<P>> {
+    let (inst, config, keys, trader_id) = load_slot::<P>(portfolio_path, instance_id)?;
     let calendar: Calendar = serde_json::from_slice(
         &std::fs::read(&config.live.session_calendar)
             .with_context(|| format!("Cannot read {}", config.live.session_calendar))?,
@@ -149,8 +149,7 @@ fn prepare(portfolio_path: &str, instance_id: &str) -> Result<Prepared> {
     ))?;
     let warmup = live_bars::broker_finalized_for(raw, data::now(), interval)?;
     live_bars::validate_broker_finalized_warmup_for(&warmup, date, data::now(), &calendar, interval)?;
-    let r = config.engine_params().resolve();
-    let needed = (r.trend * config.params.warmup_mult).max(r.atr + 42) + 20;
+    let needed = config.params.warmup_needed();
     ensure!(warmup.len() >= needed, "Warm-up has {} bars, the model needs at least {needed}", warmup.len());
     let start_ns = live_bars::close_for(warmup.last().expect("warmup"), interval)?;
     let run_seconds = (square_off_ns + 2 * 60 * 1_000_000_000).saturating_sub(now_ns) / 1_000_000_000;
@@ -166,17 +165,17 @@ fn ist_ns(date: NaiveDate, time: chrono::NaiveTime) -> Result<u64> {
 }
 
 /// Checks everything a live run needs without creating a node or sending anything.
-pub fn preflight(portfolio_path: &str, instance_id: &str, broker_path: &str) -> Result<()> {
-    let p = prepare(portfolio_path, instance_id)?;
+pub fn preflight<P: ModelParams>(portfolio_path: &str, instance_id: &str, broker_path: &str) -> Result<()> {
+    let p = prepare::<P>(portfolio_path, instance_id)?;
     let settings = load_broker(broker_path, &p.inst)?;
     live_gates(&p.inst, &p.config, &settings)?;
     kite_adapter::execution::native_client::coordination::check_unlocked(&p.keys, &settings.expected_user_id)?;
     emit(
         serde_json::json!({
-            "event": "sniper_live_preflight", "status": "PASS",
+            "event": format!("{}_live_preflight", P::STRATEGY), "status": "PASS",
             "instance": p.inst.id, "instrument": p.inst.instrument,
             "warmup_bars": p.warmup.len(), "square_off": p.config.square_off.to_string(),
-            "bar_minutes": p.config.bar_minutes, "preset": format!("{:?}", p.config.engine_params().resolve().preset),
+            "bar_minutes": p.config.bar_minutes, "preset": p.config.params.label(),
             "lots": p.config.lots, "tp1_lots": p.config.tp1_lots, "tp2_lots": p.config.tp2_lots,
             "entries_until": p.config.entries_until.to_string(), "entry_blackouts": p.config.entry_blackouts,
             "max_lots": settings.max_lots,
@@ -188,8 +187,9 @@ pub fn preflight(portfolio_path: &str, instance_id: &str, broker_path: &str) -> 
     Ok(())
 }
 
-pub fn run(portfolio_path: &str, instance_id: &str, broker_path: Option<&str>, mode: Mode) -> Result<()> {
-    let p = prepare(portfolio_path, instance_id)?;
+pub fn run<P: ModelParams>(portfolio_path: &str, instance_id: &str, broker_path: Option<&str>, mode: Mode) -> Result<()> {
+    let p = prepare::<P>(portfolio_path, instance_id)?;
+    let name = P::NAME;
     let settings = match mode {
         Mode::Live => {
             let path = broker_path.ok_or_else(|| anyhow::anyhow!("Live mode needs the broker settings file"))?;
@@ -225,13 +225,13 @@ pub fn run(portfolio_path: &str, instance_id: &str, broker_path: Option<&str>, m
         slot: p.inst.id.clone(),
         instrument: p.inst.instrument.clone(),
         square_off: p.config.square_off.format("%H:%M").to_string(),
-        exit_rule: format!("TP1 {} / TP2 {} / TP3 {} lot, step stop", p.config.tp1_lots, p.config.tp2_lots, rest),
+        exit_rule: format!("TP1 {} / TP2 {} / TP3 {} lot, {}", p.config.tp1_lots, p.config.tp2_lots, rest, p.config.params.stop_rule()),
         redis_namespace: namespace.clone(),
         point_value: p.config.point_value,
         lots: p.config.lots,
         bar_ns: i64::from(p.config.bar_minutes) * 60_000_000_000,
-        title: format!("SNIPER v{} · {}m {:?}", sniper::PORT_VERSION, p.config.bar_minutes, p.config.engine_params().resolve().preset),
-        model_title: "Precision Sniper".into(),
+        title: format!("{name} v{} · {}m {}", P::SOURCE_VERSION, p.config.bar_minutes, p.config.params.label()),
+        model_title: P::MODEL_TITLE.into(),
         ..Board::default()
     };
     // Dashboard: strategy and stop watcher push into their own lock-free queues; one
@@ -304,7 +304,7 @@ pub fn run(portfolio_path: &str, instance_id: &str, broker_path: Option<&str>, m
         let mut node = builder.build()?;
         let bar_type = data::bar_type_for(&p.instrument, interval)?;
         node.add_strategy(
-            SniperStrategy::new(&p.inst.id, bar_type, &p.config, true)
+            ModelStrategy::new(&p.inst.id, bar_type, &p.config, true)
                 .with_data_client("KITE".into())
                 .with_dashboard(strategy_feed)
                 .with_live(p.start_ns as i64, control.clone(), market_price.clone()),
@@ -321,13 +321,13 @@ pub fn run(portfolio_path: &str, instance_id: &str, broker_path: Option<&str>, m
         let mut sighup = signal(SignalKind::hangup())?;
         let watcher = tokio::spawn(async move {
             let why: String = tokio::select! {
-                _ = tokio::signal::ctrl_c() => "Ctrl+C received: flattening and stopping SNIPER".into(),
-                _ = sigterm.recv() => "SIGTERM received: flattening and stopping SNIPER".into(),
-                _ = sighup.recv() => "Terminal/SSH closed (SIGHUP): flattening and stopping SNIPER".into(),
-                reason = watcher_control.wait_fault() => format!("FAULT: {reason}. Flattening and stopping SNIPER"),
-                _ = tokio::time::sleep(Duration::from_secs(seconds)) => "Square-off window passed: stopping SNIPER".into(),
+                _ = tokio::signal::ctrl_c() => format!("Ctrl+C received: flattening and stopping {name}"),
+                _ = sigterm.recv() => format!("SIGTERM received: flattening and stopping {name}"),
+                _ = sighup.recv() => format!("Terminal/SSH closed (SIGHUP): flattening and stopping {name}"),
+                reason = watcher_control.wait_fault() => format!("FAULT: {reason}. Flattening and stopping {name}"),
+                _ = tokio::time::sleep(Duration::from_secs(seconds)) => format!("Square-off window passed: stopping {name}"),
             };
-            emit(serde_json::json!({"event":"sniper_stop_requested","reason":&why}));
+            emit(serde_json::json!({"event":format!("{}_stop_requested", P::STRATEGY),"reason":&why}));
             watcher_feed.push(move |b| {
                 b.status = "STOPPING".into();
                 b.event(why);
@@ -346,7 +346,7 @@ pub fn run(portfolio_path: &str, instance_id: &str, broker_path: Option<&str>, m
         });
         emit(
             serde_json::json!({
-                "event": "sniper_node_started", "mode": mode_label, "namespace": &namespace,
+                "event": format!("{}_node_started", P::STRATEGY), "mode": mode_label, "namespace": &namespace,
                 "lock": lock.path().display().to_string(),
                 "redis_order_budget": p.keys.order_budget(&account_id)?,
                 "dashboard_redis": dash_url.is_some(), "dashboard_state": &dash_keys.state,
@@ -363,17 +363,17 @@ pub fn run(portfolio_path: &str, instance_id: &str, broker_path: Option<&str>, m
         note(&final_board);
         let fault = control.fault.lock().ok().and_then(|f| f.clone());
         if let Err(err) = result {
-            note(&format!("SNIPER EXIT WARNING: {err:#}. Check positions and open orders in Kite."));
+            note(&format!("{name} EXIT WARNING: {err:#}. Check positions and open orders in Kite."));
             return Err(err);
         }
         emit(
-            serde_json::json!({"event":"sniper_node_finished","mode":mode_label,"namespace":&namespace,"fault":fault,
+            serde_json::json!({"event":format!("{}_node_finished", P::STRATEGY),"mode":mode_label,"namespace":&namespace,"fault":fault,
                 "flat":control.flat.load(std::sync::atomic::Ordering::Acquire)}),
         );
-        note(if control.flat.load(std::sync::atomic::Ordering::Acquire) {
-            "SNIPER stopped. Position confirmed flat."
+        note(&if control.flat.load(std::sync::atomic::Ordering::Acquire) {
+            format!("{name} stopped. Position confirmed flat.")
         } else {
-            "SNIPER stopped. Position NOT confirmed flat: check Kite now."
+            format!("{name} stopped. Position NOT confirmed flat: check Kite now.")
         });
         Ok(())
     })

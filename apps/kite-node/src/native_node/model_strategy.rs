@@ -1,7 +1,9 @@
-//! Nautilus strategy for one `sniper` portfolio slot (Precision Sniper v2.1.0).
+//! Nautilus strategy for one bar-model portfolio slot (`sniper`: Precision Sniper v2.1.0,
+//! `wvad`: Williams Variable A/D Pressure). Log events are prefixed with the strategy
+//! name (`sniper_signal`, `wvad_order`, ...).
 //!
-//! The `sniper` engine is the single source of trade decisions; this module turns its
-//! events into a TARGET POSITION and moves the broker position toward it with one
+//! The model (see `bar_model`) is the single source of trade decisions; this module turns
+//! its events into a TARGET POSITION and moves the broker position toward it with one
 //! market order at a time:
 //! * Entry → target = ±lots (signal bar close, entries window / blackouts from JSON);
 //! * Partial (TP1 / TP2) → target shrinks by `tp1_lots` / `tp2_lots`;
@@ -11,9 +13,9 @@
 //!   no wait for a separate exit fill). A partly filled flip that leaves a smaller position
 //!   on the new side is never topped up: the strategy halts and flattens.
 //!
-//! Between bar closes every quote is checked like the script's intrabar model:
+//! Between bar closes every quote is checked like the scripts' intrabar model:
 //! the executable price (bid for a long, ask for a short) against the current stop
-//! (stop first) and TP1 / TP2 / TP3; a touch is applied to the engine
+//! (stop first) and TP1 / TP2 / TP3; a touch is applied to the model
 //! (`force_close` / `mark_target`) so the model and the executed position agree.
 //! Step-stop moves take effect at the bar close, exactly as in the script.
 //!
@@ -23,10 +25,11 @@
 //! position disagreement halts entries and flattens.
 use super::live_control::Control;
 use super::{
+    bar_model::BarModel,
     dash_writer::Feed,
     dashboard::{self, Board},
+    slot_config::{ModelParams, Rules, SlotConfig},
 };
-use super::sniper_config::SniperConfig;
 use anyhow::Result;
 use chrono::{DateTime, FixedOffset, NaiveDate};
 use nautilus_common::{actor::DataActor, timer::TimeEvent};
@@ -43,13 +46,12 @@ use nautilus_trading::{
     nautilus_strategy,
     strategy::{Strategy, StrategyConfig, StrategyCore},
 };
-use sniper::{Engine, Event};
+use sniper::Event;
 use std::sync::{
     Arc,
     atomic::Ordering,
 };
 
-const GUARD_TIMER: &str = "sniper_guard";
 /// An order not resolved by the broker within this time halts the strategy.
 const IN_FLIGHT_NS: i64 = 30_000_000_000;
 /// A bar this long after its close came from the startup backfill, not the stream.
@@ -123,14 +125,17 @@ struct Live {
 }
 
 #[derive(Debug)]
-pub struct SniperStrategy {
+pub struct ModelStrategy {
     core: StrategyCore,
+    /// Strategy name: log-event prefix ("sniper").
+    name: &'static str,
+    guard_timer: String,
     instance_id: String,
     bar_type: BarType,
     data_client: Option<ClientId>,
     bar_ns: i64,
-    config: SniperConfig,
-    engine: Engine,
+    rules: Rules,
+    engine: Box<dyn BarModel>,
     orders_enabled: bool,
     live: Option<Live>,
     /// Signed lots the model wants held now.
@@ -153,21 +158,23 @@ pub struct SniperStrategy {
     live_started: bool,
 }
 
-impl SniperStrategy {
-    pub fn new(instance_id: &str, bar_type: BarType, config: &SniperConfig, orders_enabled: bool) -> Self {
+impl ModelStrategy {
+    pub fn new<P: ModelParams>(instance_id: &str, bar_type: BarType, config: &SlotConfig<P>, orders_enabled: bool) -> Self {
         Self {
             core: StrategyCore::new(StrategyConfig {
-                strategy_id: Some(format!("SNIPER-{instance_id}").as_str().into()),
+                strategy_id: Some(format!("{}-{instance_id}", P::NAME).as_str().into()),
                 log_events: false,
                 log_commands: false,
                 ..Default::default()
             }),
+            name: P::STRATEGY,
+            guard_timer: format!("{}_guard", P::STRATEGY),
             instance_id: instance_id.to_owned(),
             bar_type,
             data_client: None,
             bar_ns: i64::from(config.bar_minutes) * 60_000_000_000,
-            engine: Engine::new(config.engine_params()),
-            config: config.clone(),
+            engine: config.model(),
+            rules: config.rules(),
             orders_enabled,
             live: None,
             target: 0,
@@ -207,6 +214,11 @@ impl SniperStrategy {
         }
     }
 
+    /// Log event name with the strategy prefix: `event("signal")` → "sniper_signal".
+    fn event(&self, what: &str) -> String {
+        format!("{}_{what}", self.name)
+    }
+
     fn log_json(&self, mut value: serde_json::Value) {
         value["instance"] = serde_json::Value::String(self.instance_id.clone());
         dashboard::emit(value);
@@ -239,7 +251,7 @@ impl SniperStrategy {
 
     fn halt(&mut self, reason: &str) {
         if self.halted.is_none() {
-            self.log_json(serde_json::json!({"event":"sniper_halted","reason":reason}));
+            self.log_json(serde_json::json!({"event":self.event("halted"),"reason":reason}));
             let why = reason.to_owned();
             self.board(move |b| {
                 b.event(format!("HALTED: {why}"));
@@ -254,7 +266,7 @@ impl SniperStrategy {
 
     /// Model stop / targets onto the dashboard.
     fn show_levels(&self) {
-        let levels = self.engine.trade.as_ref().filter(|_| self.ours).map(|t| (t.stop, [t.tp1, t.tp2, t.tp3]));
+        let levels = self.engine.levels().filter(|_| self.ours).map(|t| (t.stop, t.tps));
         self.board(move |b| {
             b.sl = levels.map(|l| l.0);
             b.tps = levels.map(|l| l.1);
@@ -262,8 +274,7 @@ impl SniperStrategy {
     }
 
     fn show_model(&self, close_ns: i64, close: f64, live_bar: bool) {
-        let s = self.engine.status().clone();
-        let r = self.engine.resolved();
+        let (ready, trend, rows) = (self.engine.ready(), self.engine.trend(), self.engine.model_rows());
         let label = DateTime::from_timestamp_nanos(close_ns).with_timezone(&ist()).format("%d %b %H:%M").to_string();
         self.board(move |b| {
             b.last_bar = Some((label, close));
@@ -272,13 +283,9 @@ impl SniperStrategy {
             } else {
                 b.history_bars += 1;
             }
-            b.warmed = s.ready;
-            b.trend = s.trend_dir as i8;
-            b.model_rows = vec![
-                (format!("EMA {}/{}", r.fast, r.slow), format!("{:.0} / {:.0}  (trend {:.0})", s.ema_fast, s.ema_slow, s.ema_trend)),
-                ("Score".into(), format!("bull {:.0} · bear {:.0} of {:.0}", s.bull_score, s.bear_score, s.score_max)),
-                ("ADX / RSI".into(), format!("{:.0} / {:.0}  {}{}", s.adx, s.rsi, s.regime, if s.high_vol { " · high vol" } else { "" })),
-            ];
+            b.warmed = ready;
+            b.trend = trend as i8;
+            b.model_rows = rows;
         });
     }
 
@@ -290,34 +297,34 @@ impl SniperStrategy {
                     let note = if !entries_ok {
                         "entry blocked (halted / stopping / squared off / late bar)"
                     } else {
-                        self.target = i64::from(dir) * i64::from(self.config.lots);
+                        self.target = i64::from(dir) * i64::from(self.rules.lots);
                         self.ours = true;
                         "target set"
                     };
-                    self.log_json(serde_json::json!({"event":"sniper_signal","kind":"entry","dir":dir,"price":price,"stop":stop,
-                        "tp":[tp1,tp2,tp3],"score":score,"score_max":score_max,"grade":grade,"origin":origin,"lots":self.config.lots,"note":note}));
+                    self.log_json(serde_json::json!({"event":self.event("signal"),"kind":"entry","dir":dir,"price":price,"stop":stop,
+                        "tp":[tp1,tp2,tp3],"score":score,"score_max":score_max,"grade":grade,"origin":origin,"lots":self.rules.lots,"note":note}));
                     let side = if dir == 1 { "LONG" } else { "SHORT" };
-                    let lots = self.config.lots;
+                    let lots = self.rules.lots;
                     self.board(move |b| b.event(format!("{side} {grade} {lots} lot @ {price:.0}  SL {stop:.0}  TP {tp1:.0}/{tp2:.0}/{tp3:.0}  ({note})")));
                 }
                 Event::Partial { level, price, .. } => {
                     if !self.ours {
                         continue;
                     }
-                    let lots = i64::from(if level == 1 { self.config.tp1_lots } else { self.config.tp2_lots });
+                    let lots = i64::from(if level == 1 { self.rules.tp1_lots } else { self.rules.tp2_lots });
                     let open = self.target.abs();
                     self.target = self.target.signum() * (open - lots).max(0);
-                    self.log_json(serde_json::json!({"event":"sniper_signal","kind":"partial","level":level,"price":price,"lots":lots}));
+                    self.log_json(serde_json::json!({"event":self.event("signal"),"kind":"partial","level":level,"price":price,"lots":lots}));
                     self.board(move |b| b.event(format!("TP{level} {price:.0}: close {lots} lot")));
                 }
                 Event::Exit { price, reason, gross_r, .. } => {
                     if !self.ours {
-                        self.log_json(serde_json::json!({"event":"sniper_signal","kind":"exit","reason":reason,"note":"model trade this run did not open"}));
+                        self.log_json(serde_json::json!({"event":self.event("signal"),"kind":"exit","reason":reason,"note":"model trade this run did not open"}));
                         continue;
                     }
                     self.target = 0;
                     self.ours = false;
-                    self.log_json(serde_json::json!({"event":"sniper_signal","kind":"exit","reason":reason,"price":price,"model_r":gross_r}));
+                    self.log_json(serde_json::json!({"event":self.event("signal"),"kind":"exit","reason":reason,"price":price,"model_r":gross_r}));
                     self.board(move |b| b.event(format!("EXIT {reason} @ {price:.0}  (model {gross_r:+.2} R)")));
                 }
             }
@@ -376,7 +383,7 @@ impl SniperStrategy {
         );
         self.in_flight = Some((order.client_order_id(), Self::now_ns()));
         self.set_flat(false);
-        self.log_json(serde_json::json!({"event":"sniper_order","side":format!("{side:?}"),"qty":qty,"reduce_only":reduce,"position":pos,"target":target}));
+        self.log_json(serde_json::json!({"event":self.event("order"),"side":format!("{side:?}"),"qty":qty,"reduce_only":reduce,"position":pos,"target":target}));
         self.board(move |b| b.event(format!("ORDER {side:?} {qty} lot{} (position {pos} → target {target})", if reduce { " reduce-only" } else { "" })));
         self.submit_order(order, None, None, None)?;
         Ok(())
@@ -408,7 +415,7 @@ impl SniperStrategy {
             self.in_flight = None;
         }
         let reduce_only = self.cache().order(&id).map(|o| o.is_reduce_only());
-        self.log_json(serde_json::json!({"event":"sniper_order_closed_by_broker","client_order_id":id.to_string(),
+        self.log_json(serde_json::json!({"event":self.event("order_closed_by_broker"),"client_order_id":id.to_string(),
             "how":how,"reduce_only":reduce_only,"exit_cancels":self.exit_cancels}));
         match on_broker_closed(reduce_only, self.exit_cancels) {
             BrokerClosed::RetryExit => {
@@ -435,7 +442,7 @@ impl SniperStrategy {
         if !self.ours || self.halted.is_some() {
             return Ok(());
         }
-        let Some(t) = self.engine.trade.as_ref() else { return Ok(()) };
+        let Some(t) = self.engine.levels() else { return Ok(()) };
         let d = f64::from(t.dir);
         let px = if t.dir == 1 { bid } else { ask };
         if (px - t.stop) * d <= 0.0 {
@@ -444,10 +451,11 @@ impl SniperStrategy {
             self.apply(events, false);
             return self.reconcile();
         }
-        let level = [(1u8, t.tp1, t.hit1), (2, t.tp2, t.hit2), (3, t.tp3, t.hit3)]
-            .iter()
-            .filter(|(_, tp, hit)| !hit && (px - tp) * d >= 0.0)
-            .map(|(l, _, _)| *l)
+        let level = [1u8, 2, 3]
+            .into_iter()
+            .zip(t.tps.into_iter().zip(t.hits))
+            .filter(|(_, (tp, hit))| !hit && (px - tp) * d >= 0.0)
+            .map(|(l, _)| l)
             .max();
         if let Some(level) = level {
             let events = self.engine.mark_target(level);
@@ -458,12 +466,13 @@ impl SniperStrategy {
     }
 }
 
-impl DataActor for SniperStrategy {
+impl DataActor for ModelStrategy {
     fn on_start(&mut self) -> Result<()> {
         self.subscribe_bars(self.bar_type, self.data_client, None);
         if self.live.is_some() {
             self.subscribe_quotes(self.bar_type.instrument_id(), self.data_client, None);
-            self.clock().set_timer_ns(GUARD_TIMER, DurationNanos::from_millis(1000), None, None, None, None, None)?;
+            let timer = self.guard_timer.clone();
+            self.clock().set_timer_ns(&timer, DurationNanos::from_millis(1000), None, None, None, None, None)?;
         }
         Ok(())
     }
@@ -492,32 +501,32 @@ impl DataActor for SniperStrategy {
         });
         if !live_bar {
             // warm-up (and backtest-like) bars: model only, never orders
-            let _ = self.engine.on_bar(input, self.config.entries_allowed_at(close_s));
+            let _ = self.engine.on_bar(input, self.rules.entries_allowed_at(close_s));
             self.show_model(close_ns, input.close, false);
             return Ok(());
         }
         if !self.live_started {
             self.live_started = true;
             if let Some(Event::Exit { reason: _, gross_r, .. }) = self.engine.force_close(input.open, "Live start") {
-                self.log_json(serde_json::json!({"event":"sniper_warmup_trade_closed","model_r":gross_r}));
+                self.log_json(serde_json::json!({"event":self.event("warmup_trade_closed"),"model_r":gross_r}));
             }
-            let s = self.engine.status().clone();
+            let (ready, trend) = (self.engine.ready(), self.engine.trend());
             self.board(move |b| {
                 b.event(format!(
                     "Warm-up done on {} bars · trend {} · ready {} · trading from this bar",
                     b.history_bars,
-                    match s.trend_dir {
+                    match trend {
                         1 => "BULLISH",
                         -1 => "BEARISH",
                         _ => "neutral",
                     },
-                    if s.ready { "yes" } else { "NO" }
+                    if ready { "yes" } else { "NO" }
                 ));
                 if b.status == "STARTING" {
                     b.status = "RUNNING".into();
                 }
             });
-            self.log_json(serde_json::json!({"event":"sniper_warmed","ready":s.ready,"trend":s.trend_dir}));
+            self.log_json(serde_json::json!({"event":self.event("warmed"),"ready":ready,"trend":trend}));
         }
         let close_ist = DateTime::from_timestamp_nanos(close_ns).with_timezone(&ist());
         let late_ns = Self::now_ns() - close_ns;
@@ -529,9 +538,9 @@ impl DataActor for SniperStrategy {
         }
         let squared = self.squared_off_on == Some(close_ist.date_naive());
         let entries_ok = !squared && !too_late && self.halted.is_none() && !self.stopping();
-        let events = self.engine.on_bar(input, self.config.entries_allowed_at(close_s) && entries_ok);
+        let events = self.engine.on_bar(input, self.rules.entries_allowed_at(close_s) && entries_ok);
         self.apply(events, entries_ok);
-        if self.config.square_off_due(close_s) && !squared {
+        if self.rules.square_off_due(close_s) && !squared {
             self.squared_off_on = Some(close_ist.date_naive());
             let events: Vec<Event> = self.engine.force_close(input.close, "Square-off").into_iter().collect();
             self.apply(events, false);
@@ -540,18 +549,20 @@ impl DataActor for SniperStrategy {
                 b.status = "SQUARED OFF".into();
                 b.event("Daily square-off: flattening, no new entries today".into());
             });
-            self.log_json(serde_json::json!({"event":"sniper_square_off","bar_close_ist":close_ist.format("%Y-%m-%d %H:%M").to_string()}));
+            self.log_json(serde_json::json!({"event":self.event("square_off"),"bar_close_ist":close_ist.format("%Y-%m-%d %H:%M").to_string()}));
         }
         self.reconcile()?;
         self.show_model(close_ns, input.close, true);
         self.show_levels();
-        let s = self.engine.status().clone();
-        let t = self.engine.trade.as_ref().map(|t| serde_json::json!({"dir":t.dir,"entry":t.entry,"stop":t.stop,"tp":[t.tp1,t.tp2,t.tp3],"hits":[t.hit1,t.hit2,t.hit3],"remaining":t.remaining}));
-        self.log_json(serde_json::json!({
-            "event": "sniper_bar", "bar_close_ist": close_ist.format("%H:%M").to_string(), "close": input.close,
-            "trend": s.trend_dir, "bull": s.bull_score, "bear": s.bear_score, "adx": (s.adx * 10.0).round() / 10.0,
-            "ready": s.ready, "target": self.target, "position": self.position(), "model_trade": t,
-        }));
+        let t = self.engine.levels().map(|t| serde_json::json!({"dir":t.dir,"entry":t.entry,"stop":t.stop,"tp":t.tps,"hits":t.hits,"remaining":t.remaining}));
+        let mut line = serde_json::json!({
+            "event": self.event("bar"), "bar_close_ist": close_ist.format("%H:%M").to_string(), "close": input.close,
+            "ready": self.engine.ready(), "target": self.target, "position": self.position(), "model_trade": t,
+        });
+        if let (Some(line), serde_json::Value::Object(extra)) = (line.as_object_mut(), self.engine.bar_log()) {
+            line.extend(extra);
+        }
+        self.log_json(line);
         Ok(())
     }
 
@@ -569,7 +580,7 @@ impl DataActor for SniperStrategy {
     }
 
     fn on_time_event(&mut self, e: &TimeEvent) -> Result<()> {
-        if e.name.as_str() != GUARD_TIMER || self.live.is_none() {
+        if e.name.as_str() != self.guard_timer || self.live.is_none() {
             return Ok(());
         }
         if self.stopping() && self.halted.is_none() {
@@ -589,12 +600,12 @@ impl DataActor for SniperStrategy {
     }
 }
 
-nautilus_strategy!(SniperStrategy, {
+nautilus_strategy!(ModelStrategy, {
     fn on_order_filled(&mut self, e: &OrderFilled) {
         let qty = e.last_qty.as_f64();
         let signed = if e.order_side == OrderSide::Buy { qty } else { -qty };
         let px = e.last_px.as_f64();
-        dashboard::emit(serde_json::json!({"event":"sniper_fill","instance":self.instance_id,
+        dashboard::emit(serde_json::json!({"event":self.event("fill"),"instance":self.instance_id,
             "client_order_id":e.client_order_id.to_string(),"side":format!("{:?}", e.order_side),"qty":qty,"price":px}));
         let side = e.order_side;
         self.exit_cancels = 0;

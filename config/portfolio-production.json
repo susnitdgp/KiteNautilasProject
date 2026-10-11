@@ -29,15 +29,6 @@
       }
     },
     {
-      "id": "gold-fut",
-      "enabled": false,
-      "strategy": "unassigned",
-      "instrument": "GOLD_FUT_CONTRACT.MCX",
-      "instrument_token": 0,
-      "strategy_config": "config/gold-fut.json",
-      "live_orders_enabled": false
-    },
-    {
       "id": "crudeoilm-sniper-202610",
       "enabled": true,
       "strategy": "sniper",
@@ -47,6 +38,22 @@
       "live_orders_enabled": true,
       "rollover": {
         "strategy_id": "crudeoilm-sniper",
+        "contract_month": "2026-10",
+        "expected_expiry": "2026-10-19",
+        "lot_size": 1,
+        "next_contract": null
+      }
+    },
+    {
+      "id": "crudeoilm-wvad-202610",
+      "enabled": false,
+      "strategy": "wvad",
+      "instrument": "CRUDEOILM26OCTFUT.MCX",
+      "instrument_token": 145894663,
+      "strategy_config": "config/wvad-crudeoilm.json",
+      "live_orders_enabled": false,
+      "rollover": {
+        "strategy_id": "crudeoilm-wvad",
         "contract_month": "2026-10",
         "expected_expiry": "2026-10-19",
         "lot_size": 1,

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/kite-adapter", "apps/kite-node", "crates/kite-journal", "crates/kite-execution", "crates/sats", "crates/sniper"]
+members = ["crates/kite-adapter", "apps/kite-node", "crates/kite-journal", "crates/kite-execution", "crates/sats", "crates/sniper", "crates/wvad"]
 resolver = "2"
 
 [workspace.package]

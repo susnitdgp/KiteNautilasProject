@@ -1,0 +1,42 @@
+{
+  "strategy": "wvad",
+  "symbol": "CRUDEOILM26OCTFUT",
+  "instrument_token": 145894663,
+  "bar_minutes": 3,
+  "lots": 3,
+  "tp1_lots": 1,
+  "tp2_lots": 1,
+  "point_value": 10,
+  "round_trip_cost_points": 2.0,
+  "brokerage_per_order": 20.0,
+  "slippage_points_per_side": 1.0,
+  "live": {
+    "session_calendar": "config/mcx-session-calendar.json",
+    "product": "MIS"
+  },
+  "entries_until": "23:00:00",
+  "square_off": "23:15:00",
+  "entry_blackouts": [],
+  "params": {
+    "timeframe_minutes": 3,
+    "wvad_len": 20,
+    "signal_len": 9,
+    "adapt_filter": "SMA",
+    "adapt_filter_len": 9,
+    "use_adx": false,
+    "adx_len": 14,
+    "adx_threshold": 20.0,
+    "use_htf": false,
+    "htf_minutes": 60,
+    "atr_len": 14,
+    "sl_mult": 1.5,
+    "tp1_r": 1.0,
+    "tp2_r": 2.0,
+    "tp3_r": 3.0,
+    "step_stop": false,
+    "tick_size": 1.0,
+    "min_risk_ticks": 1,
+    "tp_through_ticks": 1,
+    "warmup_bars": 200
+  }
+}

@@ -1,6 +1,14 @@
 # Rust NautilusTrader / Zerodha Kite Research Workspace
 
-NautilusTrader 0.64 workspace for Zerodha Kite Connect: the Kite adapter (market data, instruments, history, native execution client), Precision Sniper (the main strategy, CRUDEOILM) and SATS, with backtests, paper runs and gated live runs. Real orders need a `live-orders` build, the slot and broker-settings gates and a typed `LIVE` (see `doc/PORTFOLIO_SLOTS.md`).
+NautilusTrader 0.64 workspace for Zerodha Kite Connect: the Kite adapter (market data, instruments, history, native execution client), Precision Sniper (the main strategy, CRUDEOILM), WVAD (Williams Variable A/D Pressure, `doc/WVAD_STRATEGY.md`) and SATS, with backtests, paper runs and gated live runs. Real orders need a `live-orders` build, the slot and broker-settings gates and a typed `LIVE` (see `doc/PORTFOLIO_SLOTS.md`).
+
+## WVAD (Rust port)
+
+`crates/wvad` ports Williams Variable A/D Pressure [MarkitTick] (CC BY-NC-SA 4.0): WVAD sum, adaptive filter,
+signal-line crossover with optional ADX / higher-timeframe filters, ATR stop and 1R/2R/3R targets. Precision Sniper and
+WVAD share one runner (`slot_config`, `model_strategy`, `model_live`, `model_backtest`), so WVAD has the same execution,
+safety and dashboard. `native-wvad-backtest CONFIG FROM TO`, `native-wvad-paper PORTFOLIO INSTANCE`; see
+`doc/WVAD_STRATEGY.md`.
 
 ## SATS v1.13.1 (Rust port)
 

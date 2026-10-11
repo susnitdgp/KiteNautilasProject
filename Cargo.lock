@@ -1283,7 +1283,7 @@ dependencies = [
 
 [[package]]
 name = "kite-node"
-version = "2.26.2"
+version = "2.27.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1304,6 +1304,7 @@ dependencies = [
  "sniper",
  "tempfile",
  "tokio",
+ "wvad",
 ]
 
 [[package]]
@@ -3497,6 +3498,15 @@ name = "writeable"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
+
+[[package]]
+name = "wvad"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sniper",
+]
 
 [[package]]
 name = "yoke"

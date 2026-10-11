@@ -1,20 +1,22 @@
-//! Read-only Precision Sniper replay on Kite history with MIS execution. Never places orders.
+//! Read-only bar-model replay (Precision Sniper, WVAD) on Kite history with MIS execution.
+//! Never places orders.
 //!
-//! The model (crate `sniper`) runs bar for bar exactly like the Pine script: entry at the
-//! signal bar close, exits stop-first on bar OHLC, reversal on an accepted opposite signal.
-//! The execution layer adds what a Zerodha MIS account needs and the script does not
+//! The model runs bar for bar exactly like its Pine script: entry at the signal bar close,
+//! exits stop-first on bar OHLC, reversal on an accepted opposite signal.
+//! The execution layer adds what a Zerodha MIS account needs and the scripts do not
 //! model: no new entries from `entries_until`, square-off at the first bar close at/after
 //! `square_off` (or the day's last bar), adverse slippage on every fill and an all-in
 //! round-trip cost per lot.
 use super::{
     backtest_report,
-    sniper_config::{STRATEGY, SniperConfig},
+    bar_model::BarModel,
+    slot_config::{ModelParams, SlotConfig},
 };
 use anyhow::{Result, ensure};
 use chrono::{DateTime, Duration, FixedOffset, NaiveDate};
 use kite_adapter::http::historical::{Candle, Interval, Reader};
 use serde::Serialize;
-use sniper::{Bar, Engine, Event};
+use sniper::{Bar, Event};
 use std::{collections::BTreeMap, fmt::Write as _, path::PathBuf};
 
 /// Calendar days fetched before FROM for warm-up (EMA trend × 3, ATR mean, MACD).
@@ -116,13 +118,13 @@ struct Open {
 }
 
 /// Lots to close for a partial of `fraction` of the original size (exact for whole-lot configs).
-fn tranche(c: &SniperConfig, fraction: f64, open: u32) -> u32 {
+fn tranche<P: ModelParams>(c: &SlotConfig<P>, fraction: f64, open: u32) -> u32 {
     ((fraction * c.lots as f64).round() as u32).min(open)
 }
 
 /// Replays bars (oldest first). Bars before `from` only warm the model.
-pub fn replay(c: &SniperConfig, bars: &[Bar], from: NaiveDate) -> (Vec<Row>, Engine) {
-    let mut engine = Engine::new(c.engine_params());
+pub fn replay<P: ModelParams>(c: &SlotConfig<P>, bars: &[Bar], from: NaiveDate) -> (Vec<Row>, Box<dyn BarModel>) {
+    let mut engine = c.model();
     let step = c.bar_minutes as i64 * 60;
     let slip = c.slippage_points_per_side;
     let mut open: Option<Open> = None;
@@ -236,7 +238,7 @@ pub struct Report {
     pub by_hour_ist: BTreeMap<String, Stats>,
     pub candidates: u32,
     pub rejected: BTreeMap<String, u32>,
-    pub config: SniperConfig,
+    pub config: serde_json::Value,
 }
 
 fn group(rows: &[Row], key: impl Fn(&Row) -> String) -> BTreeMap<String, Stats> {
@@ -247,34 +249,27 @@ fn group(rows: &[Row], key: impl Fn(&Row) -> String) -> BTreeMap<String, Stats> 
     m.into_iter().map(|(k, v)| (k, stats(&v))).collect()
 }
 
-pub fn report(c: &SniperConfig, bars: &[Bar], from: NaiveDate, to: NaiveDate) -> (Report, Vec<Row>) {
+pub fn report<P: ModelParams>(c: &SlotConfig<P>, bars: &[Bar], from: NaiveDate, to: NaiveDate) -> (Report, Vec<Row>) {
     let (rows, engine) = replay(c, bars, from);
     let mut days: Vec<NaiveDate> = bars.iter().map(|b| ist(b.start).date_naive()).filter(|d| *d >= from && *d <= to).collect();
     days.dedup();
     let all: Vec<&Row> = rows.iter().collect();
-    let rejected = engine
-        .rejects
-        .iter()
-        .enumerate()
-        .filter(|(_, n)| **n > 0)
-        .map(|(code, n)| (sniper::engine::reject_reason(code as u8).to_owned(), *n))
-        .collect();
     let report = Report {
-        strategy: STRATEGY,
+        strategy: P::STRATEGY,
         symbol: c.symbol.clone(),
         from,
         to,
         trading_days: days.len(),
-        preset: format!("{:?}", engine.resolved()),
+        preset: engine.describe(),
         overall: stats(&all),
         daily: group(&rows, |r| r.date.clone()),
         by_side: group(&rows, |r| r.side.to_owned()),
         by_exit: group(&rows, |r| r.exit_reason.to_owned()),
         by_grade: group(&rows, |r| r.grade.to_owned()),
         by_hour_ist: group(&rows, |r| r.entry_time[..2].to_owned()),
-        candidates: engine.candidates,
-        rejected,
-        config: c.clone(),
+        candidates: engine.candidates(),
+        rejected: engine.rejected(),
+        config: serde_json::to_value(c).unwrap_or(serde_json::Value::Null),
     };
     (report, rows)
 }
@@ -319,8 +314,8 @@ fn table(title: &str, g: &BTreeMap<String, Stats>) -> String {
     out
 }
 
-pub fn run(config_path: &str, from: &str, to: &str) -> Result<()> {
-    let c = SniperConfig::load(config_path)?;
+pub fn run<P: ModelParams>(config_path: &str, from: &str, to: &str) -> Result<()> {
+    let c = SlotConfig::<P>::load(config_path)?;
     let from: NaiveDate = from.parse()?;
     let to: NaiveDate = to.parse()?;
     ensure!(from <= to, "FROM must not be after TO");
@@ -330,7 +325,7 @@ pub fn run(config_path: &str, from: &str, to: &str) -> Result<()> {
     let (report, rows) = report(&c, &bars, from, to);
 
     let dir = PathBuf::from("backtest_results")
-        .join(STRATEGY)
+        .join(P::STRATEGY)
         .join(&c.symbol)
         .join(chrono::Local::now().format("%Y%m%d-%H%M%S").to_string());
     std::fs::create_dir_all(&dir)?;
@@ -347,10 +342,10 @@ pub fn run(config_path: &str, from: &str, to: &str) -> Result<()> {
     std::fs::write(dir.join("trades.csv"), csv)?;
     let o = &report.overall;
     let mut text = format!(
-        "PRECISION SNIPER {} {}..{} ({} days)  {}\n\
+        "{} {} {}..{} ({} days)  {}\n\
          trades {}  win {:.1}%  net ₹{:.0} ({:.1} pts)  PF {:.2}  avg win ₹{:.0} / loss ₹{:.0}  max DD ₹{:.0}  model {:.2} R (no costs)\n\
          {} lot(s) (TP1 {} / TP2 {}) × {} ₹/pt; costs {} pts/lot round trip + ₹{} per order + {} pt slippage per fill; entries until {}, square-off {}, blackouts {:?}",
-        report.symbol, from, to, report.trading_days, report.preset,
+        P::MODEL_TITLE.to_uppercase(), report.symbol, from, to, report.trading_days, report.preset,
         o.trades, o.win_rate, o.net_rupees, o.net_points, o.profit_factor, o.avg_win_rupees, o.avg_loss_rupees, o.max_drawdown_rupees, o.model_r,
         c.lots, c.tp1_lots, c.tp2_lots, c.point_value, c.round_trip_cost_points, c.brokerage_per_order, c.slippage_points_per_side,
         c.entries_until, c.square_off, c.entry_blackouts.iter().map(|w| format!("{}-{}", w.from, w.to)).collect::<Vec<_>>(),
@@ -368,9 +363,13 @@ pub fn run(config_path: &str, from: &str, to: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::{sniper_model::SniperConfig, wvad_model::WvadConfig};
     use super::*;
     fn shipped() -> SniperConfig {
         serde_json::from_str(include_str!("../../../../config/sniper-crudeoilm.json")).unwrap()
+    }
+    fn shipped_wvad() -> WvadConfig {
+        serde_json::from_str(include_str!("../../../../config/wvad-crudeoilm.json")).unwrap()
     }
     /// 12 synthetic days of 3m bars, 09:00-23:30 IST.
     fn bars() -> Vec<Bar> {
@@ -391,11 +390,12 @@ mod tests {
         }
         out
     }
-    fn check(c: &SniperConfig, rows: &[Row]) {
+    fn check<P: ModelParams>(c: &SlotConfig<P>, rows: &[Row]) {
         assert!(!rows.is_empty(), "synthetic market should trade");
         for r in rows {
             let costs = c.round_trip_cost_points * c.point_value * c.lots as f64 + c.brokerage_per_order * r.orders as f64;
-            assert!((r.net_rupees - (r.gross_lot_points * c.point_value - costs)).abs() < 0.02);
+            // gross_lot_points is rounded to 0.01 pt: allow that much per point of value
+            assert!((r.net_rupees - (r.gross_lot_points * c.point_value - costs)).abs() < 0.006 * c.point_value + 0.02);
             let lots: u32 = r.fills.split(' ').map(|f| f.split('@').next().unwrap().parse::<u32>().unwrap()).sum();
             assert_eq!(lots, c.lots, "every lot is closed: {}", r.fills);
             assert!(r.entry_time.as_str() < "23:00", "entry at {}", r.entry_time);
@@ -422,5 +422,15 @@ mod tests {
         let (rows, _) = replay(&c, &bars(), chrono::NaiveDate::from_ymd_opt(2026, 9, 1).unwrap());
         check(&c, &rows);
         assert!(rows.iter().all(|r| r.orders == if r.flip_entry { 1 } else { 2 }));
+    }
+    #[test]
+    fn wvad_replays_with_the_same_execution_layer() {
+        let c = shipped_wvad();
+        let (rows, engine) = replay(&c, &bars(), chrono::NaiveDate::from_ymd_opt(2026, 9, 1).unwrap());
+        check(&c, &rows);
+        assert!(rows.iter().any(|r| r.orders > 2), "some WVAD trade should scale out at TP1");
+        assert!(rows.iter().all(|r| ["SL", "TP3", "Reversal", "Square-off"].contains(&r.exit_reason)), "fixed stop: no step-stop exits");
+        assert!(engine.candidates() as usize >= rows.len());
+        assert!(engine.describe().starts_with("WVAD 20"));
     }
 }

@@ -8,10 +8,11 @@ strategy through the native Kite execution client.
 |---|---|
 | Signal and trade model (pure, no I/O) | `crates/sniper` (`engine.rs`, `params.rs`, `nt.rs`) |
 | Indicators | `crates/sniper/src/nt.rs` on `nautilus-indicators` 0.64; `ta.rs` = old Pine-exact port, kept as a backup file (not used) |
-| Slot settings, entry window, costs | `apps/kite-node/src/native_node/sniper_config.rs` |
-| Live strategy (orders, intrabar exits, safety) | `apps/kite-node/src/native_node/sniper_strategy.rs` |
-| Live / paper runner | `apps/kite-node/src/native_node/sniper_live.rs` |
-| Backtest | `apps/kite-node/src/native_node/sniper_backtest.rs` |
+| Hook-up to the shared runner (params, dashboard rows, log fields) | `apps/kite-node/src/native_node/sniper_model.rs` |
+| Slot settings, entry window, costs (shared with WVAD) | `apps/kite-node/src/native_node/slot_config.rs` |
+| Live strategy (orders, intrabar exits, safety; shared with WVAD) | `apps/kite-node/src/native_node/model_strategy.rs` |
+| Live / paper runner (shared with WVAD) | `apps/kite-node/src/native_node/model_live.rs` |
+| Backtest (shared with WVAD) | `apps/kite-node/src/native_node/model_backtest.rs` |
 | Shipped config | `config/sniper-crudeoilm.json` |
 | Launch scripts | `deploy/run-sniper-paper.sh`, `deploy/run-sniper-live.sh` |
 

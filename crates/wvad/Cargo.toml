@@ -1,0 +1,19 @@
+[package]
+name = "wvad"
+# Port of "Williams Variable A/D Pressure [MarkitTick]" (TradingView Pine v6, no version
+# string in the source). Bump on every change.
+version = "1.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+# The Pine source is CC BY-NC-SA 4.0 (© MarkitTick); this port is a derivative work under
+# the same licence: attribution, non-commercial, share-alike.
+license = "CC-BY-NC-SA-4.0"
+description = "Bar-for-bar Rust port of Williams Variable A/D Pressure [MarkitTick]: signal and trade model"
+
+[dependencies]
+serde.workspace = true
+sniper = { path = "../sniper" }
+
+[dev-dependencies]
+serde_json.workspace = true

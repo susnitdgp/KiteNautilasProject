@@ -6,7 +6,7 @@ lock and its own logs. Code: `apps/kite-node/src/native_node/portfolio.rs`
 (manifest and validation) and `crates/kite-adapter/src/execution/native_client/keys.rs`
 (names).
 
-Written for kite-node 2.26.0 / kite-adapter 0.8.2.
+Written for kite-node 2.27.0 / kite-adapter 0.8.2.
 
 ---
 
@@ -16,8 +16,8 @@ Written for kite-node 2.26.0 / kite-adapter 0.8.2.
 |---|---|---|---|---|
 | `crudeoilm-sniper-202610` | sniper (main) | CRUDEOILM26OCTFUT.MCX, token 145894663, expiry 2026-10-19 | yes | yes |
 | `crudeoilm-sats-202610` | sats | CRUDEOILM26OCTFUT.MCX, token 145894663, expiry 2026-10-19 | no | yes |
+| `crudeoilm-wvad-202610` | wvad (`doc/WVAD_STRATEGY.md`) | CRUDEOILM26OCTFUT.MCX, token 145894663, expiry 2026-10-19 | no | no (paper only) |
 | `nifty-fut` | unassigned (placeholder) | NIFTY_FUT_CONTRACT.NFO, token 0 | no | no |
-| `gold-fut` | unassigned (placeholder) | GOLD_FUT_CONTRACT.MCX, token 0 | no | no |
 
 ---
 
@@ -196,7 +196,7 @@ bar and strategy stages are real there; the order and fill stages need a live ru
 
 ## 4. Gates for real orders
 
-A live run (`native-sniper-live` / `native-sats-live`) needs **all** of these:
+A live run (`native-sniper-live` / `native-wvad-live` / `native-sats-live`) needs **all** of these:
 
 | # | Gate | Where |
 |---|---|---|

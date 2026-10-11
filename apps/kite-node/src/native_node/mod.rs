@@ -1,4 +1,5 @@
 pub mod backtest_report;
+mod bar_model;
 mod bar_timing;
 pub mod cli;
 mod portfolio;
@@ -13,10 +14,12 @@ mod synthetic;
 #[cfg(test)]
 mod test_support;
 mod sats_backtest;
-mod sniper_backtest;
-mod sniper_config;
-mod sniper_live;
-mod sniper_strategy;
+mod model_backtest;
+mod model_live;
+mod model_strategy;
+mod slot_config;
+mod sniper_model;
+mod wvad_model;
 pub mod sats_config;
 mod dash_writer;
 mod dashboard;
