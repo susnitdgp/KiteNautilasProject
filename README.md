@@ -20,9 +20,9 @@ Writes `backtest_results/wvad/<symbol>/<run>/summary.txt`, `summary.json` and `t
 ### Running WVAD on the market (CRUDEOILM slot `crudeoilm-wvad-202610`)
 
 * Paper (live Kite data, Kite mock execution, no broker orders): `deploy/run-wvad-paper.sh`
-* Live (REAL Zerodha orders), only after you enable it:
+* Live (REAL Zerodha orders; the slot is enabled for live from 12 Oct 2026):
   1. `cargo build --release --features live-orders`
-  2. `config/portfolio-production.json` has the slot `enabled` and `live_orders_enabled` (both off now)
+  2. `config/portfolio-production.json` has the slot `enabled` and `live_orders_enabled` (both on)
   3. local, git-ignored `config/kite-production.json` has `live_orders_enabled: true` and your Kite user ID
   4. `deploy/run-wvad-live.sh` runs the preflight, then asks you to type `LIVE`
 

@@ -6,7 +6,7 @@ lock and its own logs. Code: `apps/kite-node/src/native_node/portfolio.rs`
 (manifest and validation) and `crates/kite-adapter/src/execution/native_client/keys.rs`
 (names).
 
-Written for kite-node 2.28.0 / kite-adapter 0.8.2. Sniper and SATS are parked in `backup/`;
+Written for kite-node 2.28.1 / kite-adapter 0.8.2. Sniper and SATS are parked in `backup/`;
 WVAD is the only strategy with a runner.
 
 ---
@@ -17,7 +17,7 @@ WVAD is the only strategy with a runner.
 |---|---|---|---|---|
 | `nifty-fut` | unassigned (placeholder) | NIFTY_FUT_CONTRACT.NFO, token 0 | no | no |
 | `gold-fut` | unassigned (placeholder) | GOLD_FUT_CONTRACT.MCX, token 0 | no | no |
-| `crudeoilm-wvad-202610` | wvad (`doc/WVAD_STRATEGY.md`) | CRUDEOILM26OCTFUT.MCX, token 145894663, expiry 2026-10-19 | no | no (paper only) |
+| `crudeoilm-wvad-202610` | wvad (`doc/WVAD_STRATEGY.md`), production since 12 Oct 2026 | CRUDEOILM26OCTFUT.MCX, token 145894663, expiry 2026-10-19 | yes | yes |
 
 The Sniper and SATS slots (`crudeoilm-sniper-202610`, `crudeoilm-sats-202610`) are parked in
 `backup/config/portfolio-slots.json`.

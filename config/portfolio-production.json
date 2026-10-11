@@ -23,12 +23,12 @@
     },
     {
       "id": "crudeoilm-wvad-202610",
-      "enabled": false,
+      "enabled": true,
       "strategy": "wvad",
       "instrument": "CRUDEOILM26OCTFUT.MCX",
       "instrument_token": 145894663,
       "strategy_config": "config/wvad-crudeoilm.json",
-      "live_orders_enabled": false,
+      "live_orders_enabled": true,
       "rollover": {
         "strategy_id": "crudeoilm-wvad",
         "contract_month": "2026-10",

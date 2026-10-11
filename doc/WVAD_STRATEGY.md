@@ -17,7 +17,7 @@ under the same licence: keep the attribution, non-commercial use only, share-ali
 | Hook-up to the shared runner | `apps/kite-node/src/native_node/wvad_model.rs` |
 | Slot settings, live strategy, runner, backtest | `slot_config.rs`, `model_strategy.rs`, `model_live.rs`, `model_backtest.rs` |
 | Config | `config/wvad-crudeoilm.json` |
-| Portfolio slot | `crudeoilm-wvad-202610` (disabled, live orders off: paper only) |
+| Portfolio slot | `crudeoilm-wvad-202610` (enabled, live orders on: production from 12 Oct 2026) |
 | Scripts | `deploy/run-wvad-paper.sh`, `deploy/run-wvad-live.sh` |
 
 ---
@@ -114,7 +114,7 @@ slippage) take most of the edge. The ADX and HTF filters reduce the count.
 | Backtest | `./target/release/kite-node native-wvad-backtest config/wvad-crudeoilm.json 2026-09-19 2026-10-09` |
 | Paper run | `deploy/run-wvad-paper.sh` |
 | Live preflight only | `./target/release/kite-node native-wvad-live-preflight config/portfolio-production.json crudeoilm-wvad-202610 config/kite-production.json` |
-| Live run | `deploy/run-wvad-live.sh` (needs the slot enabled with live orders; both are off now) |
+| Live run | `deploy/run-wvad-live.sh` (preflight, then type `LIVE`) |
 
 Logs use the `wvad_` prefix (`wvad_signal`, `wvad_order`, `wvad_bar`, ...); results go to
 `backtest_results/wvad/<symbol>/<time>/`.
