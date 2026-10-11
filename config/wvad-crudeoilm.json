@@ -23,7 +23,7 @@
     "signal_len": 9,
     "adapt_filter": "SMA",
     "adapt_filter_len": 9,
-    "use_adx": false,
+    "use_adx": true,
     "adx_len": 14,
     "adx_threshold": 20.0,
     "use_htf": false,

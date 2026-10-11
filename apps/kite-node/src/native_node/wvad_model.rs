@@ -136,10 +136,11 @@ mod tests {
         let defaults = Params::default();
         assert_eq!(
             (p.wvad_len, p.signal_len, p.adapt_filter, p.adapt_filter_len, p.use_adx, p.use_htf, p.atr_len, p.sl_mult),
-            (defaults.wvad_len, defaults.signal_len, defaults.adapt_filter, defaults.adapt_filter_len, false, false, 14, 1.5),
-            "the script's default inputs"
+            (defaults.wvad_len, defaults.signal_len, defaults.adapt_filter, defaults.adapt_filter_len, true, false, 14, 1.5),
+            "the script's default inputs, ADX filter on (2.28.3)"
         );
         assert_eq!((p.tp1_r, p.tp2_r, p.tp3_r, p.step_stop), (1.0, 2.0, 3.0, false));
+        assert_eq!((p.adx_len, p.adx_threshold), (14, 20.0));
         let e = c.engine_params();
         assert!((e.tp1_close_fraction - 1.0 / 3.0).abs() < 1e-12);
         let mut wrong = c.clone();

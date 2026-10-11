@@ -33,7 +33,7 @@ Per bar:
 * **signal line** = SMA of WVAD over `signal_len` (9); **histogram** = WVAD − signal.
 
 **Signal**: WVAD crosses **above** the signal line → long; crosses **below** → short. Optional
-filters (both off in the script's defaults and in the shipped config):
+filters (both off in the script's defaults; the shipped config turns the ADX filter on):
 
 * **ADX**: ADX(`adx_len`) of the crossover bar ≥ `adx_threshold`;
 * **HTF**: the last completed higher-timeframe candle (`htf_minutes`, buckets from the 09:00
@@ -82,12 +82,12 @@ short) and a target needs `tp_through_ticks` (1) beyond the level.
 
 ### 3.2 `params` (the Pine inputs)
 
-| Key | Shipped (= script default) | Meaning |
+| Key | Shipped (= script default except `use_adx`) | Meaning |
 |---|---|---|
 | `wvad_len` | 20 | WVAD period (summation length) |
 | `signal_len` | 9 | Signal line SMA |
 | `adapt_filter`, `adapt_filter_len` | "SMA", 9 | "None", "SMA", "EMA", "RMA", "Double WMA", "Triple VWMA", "HMA", "LLAMA", "Kalman Filter" |
-| `use_adx`, `adx_len`, `adx_threshold` | false, 14, 20 | ADX filter |
+| `use_adx`, `adx_len`, `adx_threshold` | **true**, 14, 20 | ADX filter: on since kite-node 2.28.3 (script default off). Crossovers on a bar with ADX(14) < 20 are skipped |
 | `use_htf`, `htf_minutes` | false, 60 | Higher-timeframe candle filter |
 | `atr_len`, `sl_mult` | 14, 1.5 | Stop distance |
 | `tp1_r`, `tp2_r`, `tp3_r` | 1, 2, 3 | Targets in R |
