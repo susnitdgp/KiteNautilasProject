@@ -255,6 +255,7 @@ impl ModelStrategy {
             let why = reason.to_owned();
             self.board(move |b| {
                 b.event(format!("HALTED: {why}"));
+                b.close_trade("Halted: flattened", None, None);
                 b.halted = Some(why);
                 b.status = "HALTED".into();
             });
@@ -275,8 +276,13 @@ impl ModelStrategy {
 
     fn show_model(&self, close_ns: i64, close: f64, live_bar: bool) {
         let (ready, trend, rows) = (self.engine.ready(), self.engine.trend(), self.engine.model_rows());
-        let label = DateTime::from_timestamp_nanos(close_ns).with_timezone(&ist()).format("%d %b %H:%M").to_string();
+        let close_ist = DateTime::from_timestamp_nanos(close_ns).with_timezone(&ist());
+        let label = close_ist.format("%d %b %H:%M").to_string();
+        let chart = self.engine.chart().map(|(names, values)| (names, close_ist.format("%d %H:%M").to_string(), values));
         self.board(move |b| {
+            if let Some((names, at, values)) = chart {
+                b.chart_point(names, at, values);
+            }
             b.last_bar = Some((label, close));
             if live_bar {
                 b.live_bars += 1;
@@ -305,7 +311,13 @@ impl ModelStrategy {
                         "tp":[tp1,tp2,tp3],"score":score,"score_max":score_max,"grade":grade,"origin":origin,"lots":self.rules.lots,"note":note}));
                     let side = if dir == 1 { "LONG" } else { "SHORT" };
                     let lots = self.rules.lots;
-                    self.board(move |b| b.event(format!("{side} {grade} {lots} lot @ {price:.0}  SL {stop:.0}  TP {tp1:.0}/{tp2:.0}/{tp3:.0}  ({note})")));
+                    let ours = self.ours;
+                    self.board(move |b| {
+                        b.event(format!("{side} {grade} {lots} lot @ {price:.0}  SL {stop:.0}  TP {tp1:.0}/{tp2:.0}/{tp3:.0}  ({note})"));
+                        if ours {
+                            b.open_trade(dir, lots, price, stop, [tp1, tp2, tp3], grade);
+                        }
+                    });
                 }
                 Event::Partial { level, price, .. } => {
                     if !self.ours {
@@ -315,7 +327,10 @@ impl ModelStrategy {
                     let open = self.target.abs();
                     self.target = self.target.signum() * (open - lots).max(0);
                     self.log_json(serde_json::json!({"event":self.event("signal"),"kind":"partial","level":level,"price":price,"lots":lots}));
-                    self.board(move |b| b.event(format!("TP{level} {price:.0}: close {lots} lot")));
+                    self.board(move |b| {
+                        b.event(format!("TP{level} {price:.0}: close {lots} lot"));
+                        b.trade_hit(format!("TP{level} {price:.0}"));
+                    });
                 }
                 Event::Exit { price, reason, gross_r, .. } => {
                     if !self.ours {
@@ -325,7 +340,10 @@ impl ModelStrategy {
                     self.target = 0;
                     self.ours = false;
                     self.log_json(serde_json::json!({"event":self.event("signal"),"kind":"exit","reason":reason,"price":price,"model_r":gross_r}));
-                    self.board(move |b| b.event(format!("EXIT {reason} @ {price:.0}  (model {gross_r:+.2} R)")));
+                    self.board(move |b| {
+                        b.event(format!("EXIT {reason} @ {price:.0}  (model {gross_r:+.2} R)"));
+                        b.close_trade(reason, Some(price), Some(gross_r));
+                    });
                 }
             }
         }
@@ -428,7 +446,10 @@ impl ModelStrategy {
                 self.target = 0;
                 self.ours = false;
                 let how = how.to_owned();
-                self.board(move |b| b.event(format!("Entry/flip order {how} by Kite: trade abandoned, not re-sent")));
+                self.board(move |b| {
+                    b.event(format!("Entry/flip order {how} by Kite: trade abandoned, not re-sent"));
+                    b.close_trade("Abandoned: entry not filled", None, None);
+                });
                 self.show_levels();
             }
             BrokerClosed::Halt => {

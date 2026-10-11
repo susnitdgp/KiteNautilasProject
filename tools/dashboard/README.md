@@ -15,7 +15,7 @@ Served at https://nautilas.awsgoswami.com (Cloudflare → nginx with a password 
 
 ```bash
 tools/dashboard/run.sh                        # kite-prod (the bot)
-DASH_PREFIX=kite-demo tools/dashboard/run.sh  # demo data (python3 tools/dash_demo.py)
+DASH_PREFIX=kite-demo tools/dashboard/run.sh  # demo data (python3 tools/dashboard/wvad_demo.py: one WVAD slot from a backtest day)
 ```
 
 Keep it running in tmux: `tmux new -d -s dash tools/dashboard/run.sh` (attach: `tmux attach -t dash`).

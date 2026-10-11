@@ -1,4 +1,4 @@
-# app.py v1.0.0
+# app.py v1.1.0
 """Live web dashboard for the Nautilus Kite bot (Streamlit).
 
 Reads the dashboard Redis the bot publishes to (doc/LIVE_DASHBOARD.md): per slot
@@ -8,7 +8,7 @@ Read-only: it never writes to Redis and never talks to the trading Redis or Kite
   tools/dashboard/run.sh            # http://127.0.0.1:8501 (open via an SSH tunnel)
 
 The Redis URL comes from config/dashboard.json (server side only; never sent to the
-browser). Prefix: `kite-prod` (the bot) or `kite-demo` (tools/dash_demo.py).
+browser). Prefix: `kite-prod` (the bot) or `kite-demo` (tools/dashboard/wvad_demo.py).
 """
 import json
 import os
@@ -21,7 +21,7 @@ import pandas as pd
 import redis
 import streamlit as st
 
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 IST = timezone(timedelta(hours=5, minutes=30))
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = Path(os.environ.get("DASHBOARD_CONFIG", ROOT / "config" / "dashboard.json"))
@@ -204,6 +204,91 @@ def price_chart(df: pd.DataFrame, b: dict):
     return alt.layer(*layers).properties(height=260)
 
 
+# ── model chart and trades ─────────────────────────────────────────────────────
+
+def model_chart(b: dict):
+    """Model series per bar (WVAD: WVAD and signal line, histogram = their gap)."""
+    names, points = b.get("model_chart_names") or [], b.get("model_chart") or []
+    if not names or len(points) < 2:
+        return None
+    rows = [(i, label, *values) for i, (label, values) in enumerate(points)]
+    df = pd.DataFrame(rows, columns=["i", "Bar", *names])
+    x = alt.X("i:O", title=None, axis=alt.Axis(labelExpr="''", ticks=False))
+    tip = [alt.Tooltip("Bar:N", title="Bar")] + [alt.Tooltip(f"{n}:Q", format=",.0f") for n in names]
+    layers = []
+    if len(names) >= 2:
+        df["Hist"] = df[names[0]] - df[names[1]]
+        layers.append(alt.Chart(df).mark_bar(opacity=0.45).encode(
+            x=x, y=alt.Y("Hist:Q", title=None, axis=alt.Axis(format="~s", gridOpacity=0.15)),
+            color=alt.condition("datum.Hist >= 0", alt.value("#26a69a"), alt.value("#ef5350")), tooltip=tip + ["Hist:Q"]))
+    colors = ["#60a5fa", "#fb923c", "#a1a1aa"]
+    long = df.melt(id_vars=["i", "Bar"], value_vars=names, var_name="Series", value_name="Value")
+    layers.append(alt.Chart(long).mark_line(strokeWidth=2).encode(
+        x=x, y=alt.Y("Value:Q", title=None, axis=alt.Axis(format="~s")),
+        color=alt.Color("Series:N", scale=alt.Scale(domain=names, range=colors[:len(names)]),
+                        legend=alt.Legend(orient="top", title=None)),
+        tooltip=["Bar:N", "Series:N", alt.Tooltip("Value:Q", format=",.0f")]))
+    zero = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(color="#787b86", opacity=0.5).encode(y="y:Q")
+    return alt.layer(*layers, zero).resolve_scale(y="shared").properties(height=180)
+
+
+def trade_frame(b: dict) -> pd.DataFrame:
+    pv, last = b["point_value"], b.get("last_price")
+    rows = []
+    for n, t in enumerate(b.get("trades") or [], 1):
+        d = t["dir"]
+        unreal = d * (last - t["fill_entry"]) * t["open_lots"] if (last is not None and t.get("fill_entry") and t["open_lots"]) else 0.0
+        pts = t["realized_points"] + unreal
+        rows.append({
+            "#": n,
+            "Opened": t["opened"],
+            "Side": "▲ LONG" if d > 0 else "▼ SHORT",
+            "Lots": t["lots"],
+            "Grade": t.get("grade") or "",
+            "Entry": t["entry"],
+            "Fill": t.get("fill_entry"),
+            "Stop": t["stop"],
+            "TP1 / TP2 / TP3": " / ".join(f"{v:,.0f}" for v in t["tps"]),
+            "Hit": ", ".join(t.get("hits") or []) or "—",
+            "Closed": t.get("closed") or "open",
+            "Reason": t.get("reason") or ("in trade" if t["open_lots"] else "—"),
+            "Exit": t.get("exit"),
+            "Model R": t.get("model_r"),
+            "Points": round(pts, 1),
+            "₹": round(pts * pv),
+        })
+    return pd.DataFrame(rows)
+
+
+def trades_view(b: dict):
+    df = trade_frame(b)
+    with st.container(border=True):
+        if df.empty:
+            st.markdown("**Trades** · this run")
+            st.caption("No trades yet: the first one opens on a WVAD / signal crossover.")
+            return
+        closed = df[df["Closed"] != "open"]
+        won = int((closed["₹"] > 0).sum())
+        st.markdown(
+            f"**Trades** · this run · {len(df)} trades, {len(closed)} closed, {won} won · "
+            f"₹ {df['₹'].sum():+,.0f} (fills, before costs) · model {df['Model R'].fillna(0).sum():+.2f} R"
+        )
+        style = df.style.format({"Entry": "{:,.0f}", "Fill": "{:,.1f}", "Stop": "{:,.0f}", "Exit": "{:,.0f}",
+                                 "Model R": "{:+.2f}", "Points": "{:+,.1f}", "₹": "{:+,.0f}"}, na_rep="—")
+        style = style.map(lambda v: "color: #26a69a" if isinstance(v, (int, float)) and v > 0
+                          else "color: #ef5350" if isinstance(v, (int, float)) and v < 0 else "", subset=["Model R", "Points", "₹"])
+        st.dataframe(style, hide_index=True, width="stretch", height=min(420, 38 + 35 * len(df)))
+        cum = df[["#", "₹"]].copy()
+        cum["Cumulative ₹"] = cum["₹"].cumsum()
+        chart = alt.Chart(cum).mark_bar().encode(
+            x=alt.X("#:O", title="Trade"),
+            y=alt.Y("₹:Q", title=None, axis=alt.Axis(format=",.0f")),
+            color=alt.condition("datum['₹'] >= 0", alt.value("#26a69a"), alt.value("#ef5350")),
+            tooltip=["#", alt.Tooltip("₹:Q", format="+,.0f"), alt.Tooltip("Cumulative ₹:Q", format="+,.0f")],
+        ) + alt.Chart(cum).mark_line(color="#60a5fa", point=True).encode(x="#:O", y="Cumulative ₹:Q")
+        st.altair_chart(chart.properties(height=160), width="stretch")
+
+
 # ── views ──────────────────────────────────────────────────────────────────────
 
 def overview(prefix: str, names: list[str]):
@@ -232,7 +317,7 @@ def slot_view(prefix: str, name: str, event_count: int):
         return
     b, age = snap["board"], ago(snap["updated_at_ms"])
     pv = b["point_value"]
-    title = b["title"] or "SATS"
+    title = b["title"] or b["slot"]
 
     st.markdown(
         f"### {title}  \n"
@@ -279,7 +364,7 @@ def slot_view(prefix: str, name: str, event_count: int):
                 ("Feed", "⚠ " + b["feed_fault"] if b.get("feed_fault") else "OK"),
             ]), unsafe_allow_html=True)
         with st.container(border=True):
-            st.markdown(f"**{b.get('model_title') or 'SATS'}**")
+            st.markdown(f"**{b.get('model_title') or 'Model'}**")
             trend = {1: "▲ BULLISH", -1: "▼ BEARISH"}.get(b.get("trend"), "— neutral")
             rows = [("Trend", trend)]
             if b.get("model_rows"):
@@ -288,6 +373,11 @@ def slot_view(prefix: str, name: str, event_count: int):
                 rows += [("SuperTrend", px(b.get("supertrend"))), ("TQI", f"{b.get('tqi', 0):.2f} · {b.get('regime') or '—'}")]
             rows += [("Exit", b.get("exit_rule") or "—"), ("Warmed", "yes" if b.get("warmed") else "no")]
             st.markdown(kv(rows), unsafe_allow_html=True)
+            chart = model_chart(b)
+            if chart is not None:
+                st.altair_chart(chart, width="stretch")
+
+    trades_view(b)
 
     c1, c2 = st.columns([2, 3])
     with c1:
@@ -327,7 +417,7 @@ with st.sidebar:
     st.markdown(f"**Kite bot · live** v{VERSION}")
     prefix = st.selectbox("Key prefix", PREFIXES, index=PREFIXES.index(os.environ.get("DASH_PREFIX", "kite-prod"))
                           if os.environ.get("DASH_PREFIX", "kite-prod") in PREFIXES else 0,
-                          help="kite-prod = the bot · kite-demo = tools/dash_demo.py")
+                          help="kite-prod = the bot · kite-demo = tools/dashboard/wvad_demo.py")
     refresh = st.select_slider("Refresh", options=[1, 2, 5, 10], value=1, format_func=lambda s: f"{s} s")
     event_count = st.select_slider("Events shown", options=[20, 50, 100, 250], value=50)
     st.caption("Read-only view of the dashboard Redis. The Redis URL stays on the server.")
@@ -339,7 +429,7 @@ except (redis.RedisError, OSError, KeyError, json.JSONDecodeError) as e:
     st.stop()
 
 if not names:
-    st.info(f"No slots publishing under `{prefix}` yet. For demo data run `python3 tools/dash_demo.py` and pick `kite-demo`.")
+    st.info(f"No slots publishing under `{prefix}` yet. For demo data run `python3 tools/dashboard/wvad_demo.py` and pick `kite-demo`.")
     st.stop()
 
 

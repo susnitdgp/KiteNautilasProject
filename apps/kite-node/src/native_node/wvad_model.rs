@@ -95,6 +95,10 @@ impl BarModel for Engine {
     fn candidates(&self) -> u32 {
         self.candidates
     }
+    fn chart(&self) -> Option<(&'static [&'static str], Vec<f64>)> {
+        let s = self.status();
+        (s.wvad.is_finite() && s.signal.is_finite()).then(|| (&["WVAD", "Signal"][..], vec![s.wvad, s.signal]))
+    }
     fn rejected(&self) -> BTreeMap<String, u32> {
         self.rejects
             .iter()

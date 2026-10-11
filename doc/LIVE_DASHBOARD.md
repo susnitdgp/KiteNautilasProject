@@ -70,6 +70,8 @@ few seconds = the bot is stopped or cannot reach this Redis.
 | `feed_fault` | Market-data fault or `null` |
 | `warmed`, `trend` | Model warmed up; trend 1 / -1 / 0 |
 | `model_title`, `model_rows` | Model panel title and `[label, value]` rows (WVAD: WVAD / signal, strength, ADX / HTF). Empty rows = SATS panel (parked) |
+| `model_chart_names`, `model_chart` | Model chart (kite-node 2.29.0): series names (WVAD: `["WVAD", "Signal"]`) and the last 240 bars as `["DD HH:MM", [values]]`, oldest first |
+| `trades` | This run's trades, oldest first (last 80): `opened`, `dir`, `lots`, model `entry` / `stop` / `tps`, `grade`, `hits` (e.g. `"TP1 8866"`), `closed`, `exit`, `reason`, `model_r`, broker `fill_entry`, `open_lots`, `realized_points` (fills, no costs). A halt or an abandoned entry closes the row with that reason |
 | `supertrend`, `tqi`, `regime`, `next_r` | SATS panel values |
 | `exit_rule` | Exit plan text |
 | `position`, `entry_avg` | Signed lots from broker fills; average entry |

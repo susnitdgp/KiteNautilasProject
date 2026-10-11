@@ -39,4 +39,9 @@ pub trait BarModel: std::fmt::Debug {
     /// Signal candidates seen and why the rejected ones were not taken.
     fn candidates(&self) -> u32;
     fn rejected(&self) -> BTreeMap<String, u32>;
+    /// Series for the dashboard's model chart after the latest bar: names and values
+    /// (same order every bar). `None` = no chart, or no value yet.
+    fn chart(&self) -> Option<(&'static [&'static str], Vec<f64>)> {
+        None
+    }
 }

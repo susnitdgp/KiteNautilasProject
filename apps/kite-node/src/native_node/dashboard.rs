@@ -15,6 +15,10 @@ use std::io::Write;
 
 /// Events kept in the snapshot (newest first).
 const EVENTS_KEPT: usize = 8;
+/// Trades of this run kept in the snapshot (oldest dropped first).
+const TRADES_KEPT: usize = 80;
+/// Bars of the model chart kept in the snapshot.
+const CHART_KEPT: usize = 240;
 /// Events waiting for the writer, kept while the dashboard Redis is unreachable.
 const PENDING_KEPT: usize = 500;
 
@@ -28,6 +32,38 @@ pub fn emit(value: serde_json::Value) {
 /// Writes a human note to stderr; never panics.
 pub fn note(text: &str) {
     let _ = writeln!(std::io::stderr().lock(), "{text}");
+}
+
+/// One trade this run opened: the model's levels and what happened to them, plus the
+/// broker fills booked against it.
+#[derive(Debug, Default, Clone, Serialize, PartialEq)]
+pub struct TradeRow {
+    /// IST time the entry signal was acted on (HH:MM:SS).
+    pub opened: String,
+    /// 1 long, -1 short.
+    pub dir: i32,
+    pub lots: u32,
+    /// Model entry (signal bar close), stop and targets.
+    pub entry: f64,
+    pub stop: f64,
+    pub tps: [f64; 3],
+    /// Model grade / strength label.
+    pub grade: String,
+    /// Targets reached, e.g. "TP1 8866".
+    pub hits: Vec<String>,
+    pub closed: Option<String>,
+    pub exit: Option<f64>,
+    pub reason: Option<String>,
+    /// Model gross R of the whole trade (no costs).
+    pub model_r: Option<f64>,
+    /// Average broker price of the lots opened for this trade.
+    pub fill_entry: Option<f64>,
+    /// Lots the broker has open for this trade now.
+    pub open_lots: f64,
+    /// Realised points from broker fills, summed over lots (no costs).
+    pub realized_points: f64,
+    #[serde(skip)]
+    filled_lots: f64,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -45,6 +81,11 @@ pub struct Board {
     /// Model panel: title and rows. Empty rows = the trend-model fields below.
     pub model_title: String,
     pub model_rows: Vec<(String, String)>,
+    /// Model chart: series names and one entry per bar ("HH:MM", values), oldest first.
+    pub model_chart_names: Vec<String>,
+    pub model_chart: VecDeque<(String, Vec<f64>)>,
+    /// Trades this run opened, oldest first.
+    pub trades: VecDeque<TradeRow>,
     // feed
     pub last_price: Option<f64>,
     pub last_bar: Option<(String, f64)>,
@@ -93,6 +134,64 @@ impl Board {
         }
     }
 
+    /// A new trade this run opened (model entry and levels).
+    pub fn open_trade(&mut self, dir: i32, lots: u32, entry: f64, stop: f64, tps: [f64; 3], grade: &str) {
+        let opened = chrono::Utc::now().with_timezone(&ist()).format("%H:%M:%S").to_string();
+        self.trades.push_back(TradeRow { opened, dir, lots, entry, stop, tps, grade: grade.into(), ..TradeRow::default() });
+        while self.trades.len() > TRADES_KEPT {
+            self.trades.pop_front();
+        }
+    }
+
+    /// The model's open trade (the newest one not closed).
+    fn open_row(&mut self) -> Option<&mut TradeRow> {
+        self.trades.iter_mut().rev().find(|t| t.closed.is_none())
+    }
+
+    /// A target of the open trade was reached.
+    pub fn trade_hit(&mut self, what: String) {
+        if let Some(t) = self.open_row() {
+            t.hits.push(what);
+        }
+    }
+
+    /// The open trade ended in the model (stop, target, reversal, square-off, halt).
+    pub fn close_trade(&mut self, reason: &str, exit: Option<f64>, model_r: Option<f64>) {
+        let closed = chrono::Utc::now().with_timezone(&ist()).format("%H:%M:%S").to_string();
+        if let Some(t) = self.open_row() {
+            t.closed = Some(closed);
+            t.reason = Some(reason.into());
+            t.exit = exit;
+            t.model_r = model_r;
+        }
+    }
+
+    /// One bar of the model chart.
+    pub fn chart_point(&mut self, names: &[&str], label: String, values: Vec<f64>) {
+        if self.model_chart_names.len() != names.len() {
+            self.model_chart_names = names.iter().map(|n| (*n).to_owned()).collect();
+        }
+        self.model_chart.push_back((label, values));
+        while self.model_chart.len() > CHART_KEPT {
+            self.model_chart.pop_front();
+        }
+    }
+
+    /// The newest trade on side `dir` (the one a fill on that side belongs to).
+    fn row_for(&mut self, dir: f64) -> Option<&mut TradeRow> {
+        self.trades.iter_mut().rev().find(|t| f64::from(t.dir) == dir)
+    }
+
+    /// Books `lots` opened at `price` on side `dir` to that side's newest trade.
+    fn book_open(&mut self, dir: f64, lots: f64, price: f64) {
+        if let Some(t) = self.row_for(dir) {
+            let cost = t.fill_entry.unwrap_or(price) * t.filled_lots + price * lots;
+            t.filled_lots += lots;
+            t.fill_entry = Some(cost / t.filled_lots);
+            t.open_lots += lots;
+        }
+    }
+
     /// Applies one broker fill (`signed_qty` > 0 buys) to position, average entry and realised points.
     pub fn apply_fill(&mut self, signed_qty: f64, price: f64) {
         self.fills += 1;
@@ -102,11 +201,20 @@ impl Board {
             // opening or adding
             let cost = self.entry_avg.unwrap_or(price) * before.abs() + price * signed_qty.abs();
             self.entry_avg = Some(cost / after.abs());
+            self.book_open(after.signum(), signed_qty.abs(), price);
         } else {
             // reducing, closing, or a flip (one order through zero, e.g. +2 → −3)
             let closed = signed_qty.abs().min(before.abs());
             if let Some(entry) = self.entry_avg {
-                self.realized_points += before.signum() * (price - entry) * closed;
+                let points = before.signum() * (price - entry) * closed;
+                self.realized_points += points;
+                if let Some(t) = self.row_for(before.signum()) {
+                    t.realized_points += points;
+                    t.open_lots = (t.open_lots - closed).max(0.0);
+                }
+            }
+            if after != 0.0 && after.signum() != before.signum() {
+                self.book_open(after.signum(), after.abs(), price);
             }
             if after == 0.0 {
                 self.entry_avg = None;
@@ -202,6 +310,12 @@ impl Board {
             self.exchange_stop.map_or(String::new(), |t| format!("   (SL-M {t:.0} at Zerodha)"))));
         row(format!(" Unrealised   {}", self.unrealized_points().map_or("—".into(), money)));
         row(format!(" Realised     {}   ({} round trips, {} fills)", money(self.realized_points), self.round_trips, self.fills));
+        if !self.trades.is_empty() {
+            let won = self.trades.iter().filter(|t| t.closed.is_some() && t.realized_points > 0.0).count();
+            let closed = self.trades.iter().filter(|t| t.closed.is_some()).count();
+            let r: f64 = self.trades.iter().filter_map(|t| t.model_r).sum();
+            row(format!(" Trades       {} ({closed} closed, {won} won)   model {r:+.2} R", self.trades.len()));
+        }
         row(line.clone());
         row(format!(" Square-off   {} IST  (in {countdown})   lots {}", self.square_off, self.lots));
         if let Some(h) = &self.halted {
@@ -257,6 +371,39 @@ mod tests {
         b.apply_fill(3.0, 8790.0); // cover lower: +20 on 3 lots
         assert_eq!(b.realized_points, 100.0);
         assert_eq!((b.position, b.entry_avg, b.round_trips), (0.0, None, 2));
+    }
+
+    #[test]
+    fn trades_collect_levels_targets_and_their_own_fills_through_a_flip() {
+        let mut b = Board::default();
+        b.open_trade(1, 3, 8800.0, 8780.0, [8820.0, 8840.0, 8860.0], "High");
+        b.apply_fill(3.0, 8801.0);
+        b.trade_hit("TP1 8820".into());
+        b.apply_fill(-1.0, 8820.0); // +19 on 1 lot
+        // reversal: the model closes the long and opens a short, one flip order fills
+        b.close_trade("Reversal", Some(8810.0), Some(0.5));
+        b.open_trade(-1, 3, 8810.0, 8830.0, [8790.0, 8770.0, 8750.0], "Low");
+        b.apply_fill(-5.0, 8809.0); // closes 2 longs (+8 each), opens 3 shorts at 8809
+        let long = &b.trades[0];
+        assert_eq!((long.fill_entry, long.open_lots, long.realized_points), (Some(8801.0), 0.0, 35.0));
+        assert_eq!((long.reason.as_deref(), long.hits.len(), long.model_r), (Some("Reversal"), 1, Some(0.5)));
+        let short = &b.trades[1];
+        assert_eq!((short.fill_entry, short.open_lots, short.closed.is_none()), (Some(8809.0), 3.0, true));
+        b.apply_fill(3.0, 8790.0); // cover: +19 on 3 lots
+        b.close_trade("TP3", Some(8790.0), Some(1.0));
+        assert_eq!((b.trades[1].realized_points, b.trades[1].open_lots), (57.0, 0.0));
+        assert_eq!(b.realized_points, 35.0 + 57.0, "per-trade points add up to the run total");
+    }
+
+    #[test]
+    fn model_chart_keeps_the_newest_bars() {
+        let mut b = Board::default();
+        for i in 0..(CHART_KEPT + 5) {
+            b.chart_point(&["WVAD", "Signal"], format!("{i}"), vec![i as f64, 0.0]);
+        }
+        assert_eq!(b.model_chart.len(), CHART_KEPT);
+        assert_eq!(b.model_chart.front().map(|p| p.0.as_str()), Some("5"));
+        assert_eq!(b.model_chart_names, vec!["WVAD", "Signal"]);
     }
 
     #[test]
