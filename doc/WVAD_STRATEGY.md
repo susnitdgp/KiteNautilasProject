@@ -4,7 +4,7 @@ Rust port of the TradingView indicator **Williams Variable A/D Pressure [MarkitT
 (Pine v6), run on **CRUDEOILM** 3-minute bars as an intraday MIS strategy through the generic
 bar-model runner (the one Precision Sniper used before it was parked in `backup/`).
 
-Written for kite-node 2.28.0 / wvad 1.1.0 (the active strategy; Sniper and SATS are parked).
+Written for kite-node 2.29.1 / wvad 1.1.0 (the active strategy; Sniper and SATS are parked).
 
 **Licence.** The Pine source is © MarkitTick under CC BY-NC-SA 4.0
 (https://creativecommons.org/licenses/by-nc-sa/4.0/). `crates/wvad` is a derivative work
@@ -44,7 +44,7 @@ filters (both off in the script's defaults; the shipped config turns the ADX fil
 | Step | Rule |
 |---|---|
 | Entry | At the **crossover bar's close** |
-| Stop | entry ∓ ATR(`atr_len`) × `sl_mult` (14, 1.5). Fixed: it never moves (`step_stop` off) |
+| Stop | entry ∓ ATR(`atr_len`) × `sl_mult` (14, 1.5). **Step stop** (`step_stop` on since kite-node 2.29.1): after TP1 the stop moves to entry, after TP2 to TP1. It moves at the close of the bar where the target was hit (live too: a TP hit on a quote moves the stop at that bar's close). Not a continuous trail |
 | Targets | entry ± 1R / 2R / 3R (R = the stop distance) |
 | TP1 / TP2 | With 3 lots: 1 lot out at each. The script only marks them |
 | Exit | Stop, TP3 (the rest), an accepted **opposite** signal (one flip order), or the 23:15 square-off |
@@ -82,7 +82,7 @@ short) and a target needs `tp_through_ticks` (1) beyond the level.
 
 ### 3.2 `params` (the Pine inputs)
 
-| Key | Shipped (= script default except `use_adx`) | Meaning |
+| Key | Shipped (= script default except `use_adx`, `step_stop`) | Meaning |
 |---|---|---|
 | `wvad_len` | 20 | WVAD period (summation length) |
 | `signal_len` | 9 | Signal line SMA |
@@ -91,7 +91,7 @@ short) and a target needs `tp_through_ticks` (1) beyond the level.
 | `use_htf`, `htf_minutes` | false, 60 | Higher-timeframe candle filter |
 | `atr_len`, `sl_mult` | 14, 1.5 | Stop distance |
 | `tp1_r`, `tp2_r`, `tp3_r` | 1, 2, 3 | Targets in R |
-| `step_stop` | false | Not in the script. On: TP1 → stop to entry, TP2 → stop to TP1 |
+| `step_stop` | **true** | Not in the script. On (since kite-node 2.29.1): TP1 → stop to entry, TP2 → stop to TP1 |
 | `tick_size`, `min_risk_ticks` | 1, 1 | Trades with a smaller stop distance are skipped |
 | `tp_through_ticks` | 1 | Live config. 0 = the script's touch rule |
 | `warmup_bars` | 200 | Bars before the first signal may be taken |
@@ -100,8 +100,15 @@ short) and a target needs `tp_through_ticks` (1) beyond the level.
 
 | Run | Trades | Win % | Net | PF | Max DD | Model R |
 |---|---|---|---|---|---|---|
-| Shipped config (3 lots, costs, slippage) | 257 | 37.7 | **−₹45,072** | 0.65 | ₹55,643 | −4.82 |
+| Shipped config (ADX ≥ 20, step stop; 3 lots, costs, slippage) | 171 | 42.7 | **−₹33,481** | 0.60 | ₹42,674 | −5.72 |
+| Same with a fixed stop (2.28.3 – 2.29.0) | 170 | 33.5 | −₹35,243 | 0.62 | ₹40,872 | −8.82 |
+| ADX ≥ 25, step stop | 122 | 39.3 | −₹30,235 | 0.51 | ₹34,506 | −10.98 |
+| No filters, fixed stop (2.28.0 – 2.28.2) | 257 | 37.7 | −₹45,072 | 0.65 | ₹55,643 | −4.82 |
 | Script-like (1 lot, no costs, touch, no session cut) | 267 | 34.5 | −₹1,698 | 0.96 | ₹9,911 | −8.51 |
+
+October only (1–9 Oct, 6 days), ADX ≥ 20: step stop 62 trades, 48.4 %, −₹9,702, PF 0.60,
++2.28R; fixed stop 62 trades, 35.5 %, −₹7,635, PF 0.73, +3.33R. The step stop turns about a
+third of the would-be stop-outs into breakeven / TP1 exits but halves the TP3 runners.
 
 Script-like in R: 92 W / 174 L, expectancy −0.03R, avg win 1.51R / loss 0.84R, 26 TP3, 134 SL,
 95 reversals. About 19 trades a day on 3-minute bars: costs (2 pts × 3 lots + ₹20 per order +

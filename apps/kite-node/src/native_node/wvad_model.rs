@@ -143,7 +143,8 @@ mod tests {
             (defaults.wvad_len, defaults.signal_len, defaults.adapt_filter, defaults.adapt_filter_len, true, false, 14, 1.5),
             "the script's default inputs, ADX filter on (2.28.3)"
         );
-        assert_eq!((p.tp1_r, p.tp2_r, p.tp3_r, p.step_stop), (1.0, 2.0, 3.0, false));
+        // step stop on since 2.29.1: TP1 → stop to entry, TP2 → stop to TP1
+        assert_eq!((p.tp1_r, p.tp2_r, p.tp3_r, p.step_stop), (1.0, 2.0, 3.0, true));
         assert_eq!((p.adx_len, p.adx_threshold), (14, 20.0));
         let e = c.engine_params();
         assert!((e.tp1_close_fraction - 1.0 / 3.0).abs() < 1e-12);

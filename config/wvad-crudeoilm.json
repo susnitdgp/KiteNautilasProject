@@ -33,7 +33,7 @@
     "tp1_r": 1.0,
     "tp2_r": 2.0,
     "tp3_r": 3.0,
-    "step_stop": false,
+    "step_stop": true,
     "tick_size": 1.0,
     "min_risk_ticks": 1,
     "tp_through_ticks": 1,
