@@ -6,7 +6,7 @@ lock and its own logs. Code: `apps/kite-node/src/native_node/portfolio.rs`
 (manifest and validation) and `crates/kite-adapter/src/execution/native_client/keys.rs`
 (names).
 
-Written for kite-node 2.28.1 / kite-adapter 0.8.2. Sniper and SATS are parked in `backup/`;
+Written for kite-node 2.28.2 / kite-adapter 0.8.2. Sniper and SATS runners are parked in `backup/`;
 WVAD is the only strategy with a runner.
 
 ---

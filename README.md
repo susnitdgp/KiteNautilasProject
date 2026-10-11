@@ -2,8 +2,9 @@
 
 NautilusTrader 0.64 workspace for Zerodha Kite Connect: the Kite adapter (market data, instruments, history, native execution client) and **WVAD** (Williams Variable A/D Pressure, CRUDEOILM), with backtests, paper runs and gated live runs. Real orders need a `live-orders` build, the slot and broker-settings gates and a typed `LIVE` (see `doc/PORTFOLIO_SLOTS.md`).
 
-Precision Sniper and SATS are **parked** in `backup/` (not built or run); `backup/README.md` says how to bring them
-back. Their last runnable state is the branch `backup-2026-10-11-sniper-sats-wvad`.
+Precision Sniper and SATS are **parked**: their model crates stay in `crates/sniper` and `crates/sats` (built and
+unit-tested, not used by kite-node); their kite-node runners, configs and scripts are in `backup/` (not built).
+`backup/README.md` says how to bring them back. Their last runnable state is the branch `backup-2026-10-11-sniper-sats-wvad`.
 
 ## WVAD (Rust port)
 
