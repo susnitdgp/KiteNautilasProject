@@ -29,6 +29,10 @@ pub trait ModelParams: Clone + std::fmt::Debug + Default + PartialEq + Serialize
     fn label(&self) -> String;
     /// How the stop behaves after targets, for the dashboard ("step stop").
     fn stop_rule(&self) -> &'static str;
+    /// Backtest: calendar days of history fetched before FROM to warm the model.
+    fn backtest_warmup_days(&self) -> i64 {
+        4
+    }
 }
 
 /// Live-runner settings.

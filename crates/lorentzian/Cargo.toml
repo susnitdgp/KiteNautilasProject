@@ -1,0 +1,20 @@
+[package]
+name = "lorentzian"
+# Port of "Machine Learning: Lorentzian Classification" v2.0 (TradingView Pine v6, © jdehorty).
+# Bump on every change.
+version = "1.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+# The Pine source and its libraries (MLExtensions v2, KernelFunctions v2) are MPL 2.0
+# (© jdehorty); this port is a derivative work under the same licence.
+license = "MPL-2.0"
+description = "Rust port of Machine Learning: Lorentzian Classification (jdehorty): features, ANN, filters, kernel and trade model"
+
+[dependencies]
+serde.workspace = true
+# Bar in, Event out: the shared bar-model types of the runner.
+wvad = { path = "../wvad" }
+
+[dev-dependencies]
+serde_json.workspace = true

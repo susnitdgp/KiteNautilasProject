@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/kite-adapter", "apps/kite-node", "crates/kite-journal", "crates/kite-execution", "crates/wvad", "crates/sniper", "crates/sats"]
+members = ["crates/kite-adapter", "apps/kite-node", "crates/kite-journal", "crates/kite-execution", "crates/wvad", "crates/lorentzian", "crates/sniper", "crates/sats"]
 # crates/sniper and crates/sats are built and tested but not used by kite-node; their
 # kite-node runners, configs and scripts are parked in backup/ (see backup/README.md).
 exclude = ["backup"]

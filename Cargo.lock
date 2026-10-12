@@ -1283,13 +1283,14 @@ dependencies = [
 
 [[package]]
 name = "kite-node"
-version = "2.29.2"
+version = "2.30.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
  "kite-adapter",
  "log",
+ "lorentzian",
  "nautilus-common",
  "nautilus-core",
  "nautilus-live",
@@ -1346,6 +1347,15 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 dependencies = [
  "serde_core",
  "value-bag",
+]
+
+[[package]]
+name = "lorentzian"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "wvad",
 ]
 
 [[package]]

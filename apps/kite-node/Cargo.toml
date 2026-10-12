@@ -1,6 +1,6 @@
 [package]
 name = "kite-node"
-version = "2.29.2"
+version = "2.30.0"
 edition.workspace = true
 rust-version.workspace = true
 publish = false
@@ -21,6 +21,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 tokio.workspace = true
 
 wvad = { path = "../../crates/wvad" }
+lorentzian = { path = "../../crates/lorentzian" }
 
 nautilus-trading.workspace = true
 
