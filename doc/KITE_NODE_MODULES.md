@@ -33,7 +33,7 @@ model is `crates/wvad`.
 | File | Lines | What it does |
 |---|---|---|
 | `data.rs` | 505 | The Nautilus data client: Kite WebSocket ticks → quotes (bid/ask) and finished candles to the strategy; reconnects, backfills; `latency_bar` log lines |
-| `ws_candles.rs` | 266 | Builds 3-minute candles from Kite full-mode ticks on exchange time; a gap or reconnect fails closed (flatten and stop) |
+| `ws_candles.rs` | 412 | Builds 3-minute candles from Kite full-mode ticks by **last-trade time**; a bar is closed by the feed clock 1 s after its boundary (2.32.0); a trade after its bar closed moves its volume to the next bar (`live_bar_late_trade`); a period with no trade gives no bar; a reconnect, volume reset or bad packet fails closed (flatten and stop) |
 | `live_bars.rs` | 310 | Picks finalised candles from Kite history for the warm-up, detects gaps and revised candles, converts them to Nautilus bars |
 | `live_backfill.rs` | 129 | Fetches the candle that was in progress at start-up (or across a feed gap) from Kite history once it is final, so the model sees no hole |
 | `bar_timing.rs` | 7 | How long after a candle's close Kite's history is treated as final |

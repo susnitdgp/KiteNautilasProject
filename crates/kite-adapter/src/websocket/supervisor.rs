@@ -17,6 +17,10 @@ pub const FRAME_IDLE: Duration = Duration::from_secs(10);
 /// than 10 s without a tick while heartbeats show the connection is fine.
 pub const FRESH_DATA_IDLE: Duration = Duration::from_secs(60);
 
+/// kite-adapter 0.9.0: how often `FeedEvent::Clock` is sent while a connection is up, so
+/// consumers can act on time (closing a bar on its boundary) without waiting for a packet.
+pub const CLOCK_TICK: Duration = Duration::from_millis(250);
+
 /// When the next receive must have produced something: the earlier of the two limits.
 fn receive_deadline(last_frame: Instant, last_usable: Instant) -> Instant {
     (last_frame + FRAME_IDLE).min(last_usable + FRESH_DATA_IDLE)
@@ -28,6 +32,8 @@ pub enum FeedEvent {
     Connected { generation: u32 },
     Gap { generation: u32 },
     Snapshot(Box<Snapshot>),
+    /// Every `CLOCK_TICK` while connected (kite-adapter 0.9.0); carries no data.
+    Clock,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -144,12 +150,20 @@ async fn observe_impl(
         on_event(FeedEvent::Connected { generation });
         let mut last_frame = Instant::now();
         let mut last_usable = Instant::now();
+        let mut next_clock = Instant::now() + CLOCK_TICK;
         loop {
+            // The clock branch comes before the read so a busy stream cannot starve it;
+            // dropping the pending read is safe (the socket buffers the frame).
             let message = tokio::select! {
                 biased;
                 _ = sleep_until(deadline) => {
                     transport::close(&mut socket).await;
                     break 'connections;
+                }
+                _ = sleep_until(next_clock) => {
+                    next_clock = Instant::now() + CLOCK_TICK;
+                    on_event(FeedEvent::Clock);
+                    continue;
                 }
                 message = transport::next(&mut socket, receive_deadline(last_frame, last_usable)) => message,
             };

@@ -155,6 +155,56 @@ fn emit(
         _ => status(tx, "invalid_top_quote", generation),
     }
 }
+/// Wall clock in epoch milliseconds (bar-close timing).
+fn now_ms() -> i64 {
+    (now() / 1_000_000) as i64
+}
+/// Hands a finished live candle to the strategy with its latency line (kite-node 2.32.0:
+/// `trigger` is "clock" or "packet", whichever noticed the grace was over first). A backfill
+/// still pending would now arrive after this bar, so it is dropped to keep bars in order.
+#[allow(clippy::too_many_arguments)]
+fn publish_bar(
+    tx: &tokio::sync::mpsc::UnboundedSender<DataEvent>,
+    c: &kite_adapter::http::historical::Candle,
+    bt: nautilus_model::data::BarType,
+    interval: kite_adapter::http::historical::Interval,
+    instrument: &str,
+    trigger: &str,
+    backfill: &mut Option<super::live_backfill::Shared>,
+    control: Option<&super::live_control::Control>,
+) {
+    let b = match super::live_bars::bar_for(c, bt, now(), interval) {
+        Ok(b) => b,
+        Err(e) => {
+            if let Some(ctrl) = control {
+                ctrl.fail(&format!("WebSocket bar conversion: {e}"));
+            }
+            return;
+        }
+    };
+    let emitted = now() / 1_000_000;
+    let close = b.ts_event.as_u64() / 1_000_000;
+    super::dashboard::emit(serde_json::json!({
+        "event": "latency_bar",
+        "instrument": instrument,
+        "bar_close_ms": close,
+        "emitted_ms": emitted,
+        "after_close_ms": emitted as i64 - close as i64,
+        "trigger": trigger,
+        "grace_ms": super::ws_candles::BAR_CLOSE_GRACE_MS,
+    }));
+    if let Some(state) = backfill.take() {
+        let mut s = state.lock().unwrap_or_else(|p| p.into_inner());
+        if *s == super::live_backfill::State::Pending {
+            *s = super::live_backfill::State::Abandoned;
+            super::dashboard::emit(serde_json::json!({
+                "event": "live_backfill_abandoned",
+                "reason": "first live bar arrived before the backfill",
+            }));
+        }
+    }
+    let _ = tx.send(DataEvent::Data(Data::Bar(b)));
+}
 /// Fetches the startup gap in the background and publishes it, unless the first
 /// live bar got there first (then the gap is left as before and logged).
 fn spawn_backfill(
@@ -253,6 +303,9 @@ impl Client {
                 }
             }
             if let Some(credentials) = config.credentials {
+                let control = config.live_bars.as_ref().map(|(_, _, c)| c);
+                let instrument_id = config.instrument.id.to_string();
+                let mut late_seen = 0u64;
                 let on_event = |e| match e {
                     FeedEvent::Connected { generation } => status(&tx, "connected", generation),
                     FeedEvent::Gap { generation } => {
@@ -262,72 +315,36 @@ impl Client {
                         status(&tx, "gap", generation)
                     }
                     FeedEvent::Snapshot(s) => {
-                        if config.live_bars.as_ref().is_some_and(|(_, _, control)| {
-                            control.stopping.load(std::sync::atomic::Ordering::Acquire)
-                        }) {
+                        if control.is_some_and(|c| c.stopping.load(std::sync::atomic::Ordering::Acquire)) {
                             return;
                         }
                         if quotes::map(&s, &config.instrument).ok().flatten().is_none() {
-                            if let Some((_, _, control)) = &config.live_bars {
-                                control.fail("Invalid WebSocket quote: bar source not trustworthy");
+                            if let Some(ctrl) = control {
+                                ctrl.fail("Invalid WebSocket quote: bar source not trustworthy");
                             }
                             return;
                         }
                         if let (Some(agg), Some(bt)) = (&mut candle_agg, bar_type) {
-                            match agg.observe(&s) {
-                                Ok(Some(c)) => match super::live_bars::bar_for(
-                                    &c,
-                                    bt,
-                                    now(),
-                                    config.interval,
-                                ) {
-                                    Ok(b) => {
-                                        // Latency (2.24.1): how long after the candle's close
-                                        // the bar reaches the strategy, and the age of the
-                                        // tick that closed it (exchange time has 1 s resolution).
-                                        let emitted = now() / 1_000_000;
-                                        let close = b.ts_event.as_u64() / 1_000_000;
-                                        let received = s.received_at_utc.timestamp_millis();
-                                        super::dashboard::emit(serde_json::json!({
-                                            "event": "latency_bar",
-                                            "instrument": config.instrument.id.to_string(),
-                                            "bar_close_ms": close,
-                                            "emitted_ms": emitted,
-                                            "after_close_ms": emitted as i64 - close as i64,
-                                            "tick_exchange_s": s.exchange_timestamp,
-                                            "tick_received_ms": received,
-                                            "tick_age_ms": s.exchange_timestamp
-                                                .map(|t| received - i64::from(t) * 1000),
-                                        }));
-                                        // A backfill still pending now would arrive after
-                                        // this bar: drop it so bars stay in order.
-                                        if let Some(state) = backfill.take() {
-                                            let mut s = state.lock().unwrap_or_else(|p| p.into_inner());
-                                            if *s == super::live_backfill::State::Pending {
-                                                *s = super::live_backfill::State::Abandoned;
-                                                super::dashboard::emit(serde_json::json!({
-                                                    "event": "live_backfill_abandoned",
-                                                    "reason": "first live bar arrived before the backfill",
-                                                }));
-                                            }
-                                            let _ = tx.send(DataEvent::Data(Data::Bar(b)));
-                                        } else {
-                                            let _ = tx.send(DataEvent::Data(Data::Bar(b)));
-                                        }
-                                    }
-                                    Err(e) => {
-                                        if let Some((_, _, ctrl)) = &config.live_bars {
-                                            ctrl.fail(&format!("WebSocket bar conversion: {e}"));
-                                        }
-                                    }
-                                },
-                                Ok(None) => {}
-                                Err(e) => {
-                                    if let Some((_, _, ctrl)) = &config.live_bars {
-                                        ctrl.fail(&format!("WebSocket candle invalid: {e}"));
-                                    }
-                                    return;
+                            // 2.32.0: a packet only adds its trade to the open bars; bars are
+                            // handed out when their grace is over (here or on the clock).
+                            if let Err(e) = agg.observe(&s) {
+                                if let Some(ctrl) = control {
+                                    ctrl.fail(&format!("WebSocket candle invalid: {e}"));
                                 }
+                                return;
+                            }
+                            if agg.late_trades() > late_seen {
+                                late_seen = agg.late_trades();
+                                super::dashboard::emit(serde_json::json!({
+                                    "event": "live_bar_late_trade",
+                                    "instrument": instrument_id,
+                                    "late_trades_total": late_seen,
+                                    "tick_exchange_s": s.exchange_timestamp,
+                                    "note": "trade arrived after its bar closed; volume moved to the next bar",
+                                }));
+                            }
+                            for c in agg.close_due(now_ms()) {
+                                publish_bar(&tx, &c, bt, config.interval, &instrument_id, "packet", &mut backfill, control);
                             }
                             if let Some(gap) = agg.take_gap() {
                                 let state = super::live_backfill::shared();
@@ -336,6 +353,16 @@ impl Client {
                             }
                         }
                         emit(&tx, *s, &config.instrument)
+                    }
+                    FeedEvent::Clock => {
+                        if control.is_some_and(|c| c.stopping.load(std::sync::atomic::Ordering::Acquire)) {
+                            return;
+                        }
+                        if let (Some(agg), Some(bt)) = (&mut candle_agg, bar_type) {
+                            for c in agg.close_due(now_ms()) {
+                                publish_bar(&tx, &c, bt, config.interval, &instrument_id, "clock", &mut backfill, control);
+                            }
+                        }
                     }
                 };
                 let socket = socket.expect("live socket connected");
