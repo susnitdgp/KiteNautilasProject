@@ -167,7 +167,7 @@ fn spawn_backfill(
 ) {
     use super::live_backfill::State;
     super::dashboard::emit(serde_json::json!({
-        "event": "sats_backfill_scheduled", "from_epoch_s": gap.0, "to_epoch_s": gap.1,
+        "event": "live_backfill_scheduled", "from_epoch_s": gap.0, "to_epoch_s": gap.1,
     }));
     tokio::spawn(async move {
         let result = super::live_backfill::fetch(token, interval, gap).await;
@@ -180,7 +180,7 @@ fn spawn_backfill(
             Err(e) => {
                 *s = State::Abandoned;
                 super::dashboard::emit(serde_json::json!({
-                    "event": "sats_backfill_failed", "reason": format!("{e:#}"),
+                    "event": "live_backfill_failed", "reason": format!("{e:#}"),
                 }));
                 return;
             }
@@ -194,7 +194,7 @@ fn spawn_backfill(
                 }
                 Err(e) => {
                     super::dashboard::emit(serde_json::json!({
-                        "event": "sats_backfill_failed", "reason": format!("bar conversion: {e:#}"),
+                        "event": "live_backfill_failed", "reason": format!("bar conversion: {e:#}"),
                     }));
                     break;
                 }
@@ -202,7 +202,7 @@ fn spawn_backfill(
         }
         *s = State::Done;
         super::dashboard::emit(serde_json::json!({
-            "event": "sats_backfill_done", "bars": sent.len(), "bar_starts": sent,
+            "event": "live_backfill_done", "bars": sent.len(), "bar_starts": sent,
         }));
     });
 }
@@ -306,7 +306,7 @@ impl Client {
                                             if *s == super::live_backfill::State::Pending {
                                                 *s = super::live_backfill::State::Abandoned;
                                                 super::dashboard::emit(serde_json::json!({
-                                                    "event": "sats_backfill_abandoned",
+                                                    "event": "live_backfill_abandoned",
                                                     "reason": "first live bar arrived before the backfill",
                                                 }));
                                             }
