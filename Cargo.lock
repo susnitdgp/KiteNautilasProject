@@ -1283,7 +1283,7 @@ dependencies = [
 
 [[package]]
 name = "kite-node"
-version = "2.30.0"
+version = "2.30.1"
 dependencies = [
  "anyhow",
  "async-trait",

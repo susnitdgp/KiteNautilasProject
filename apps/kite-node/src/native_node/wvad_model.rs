@@ -139,10 +139,12 @@ mod tests {
         let p = &c.params;
         let defaults = Params::default();
         assert_eq!(
-            (p.wvad_len, p.signal_len, p.adapt_filter, p.adapt_filter_len, p.use_adx, p.use_htf, p.atr_len, p.sl_mult),
-            (defaults.wvad_len, defaults.signal_len, defaults.adapt_filter, defaults.adapt_filter_len, true, false, 14, 1.5),
+            (p.wvad_len, p.signal_len, p.adapt_filter_len, p.use_adx, p.use_htf, p.atr_len, p.sl_mult),
+            (defaults.wvad_len, defaults.signal_len, defaults.adapt_filter_len, true, false, 14, 1.5),
             "the script's default inputs, ADX filter on (2.28.3)"
         );
+        // adaptive filter EMA instead of the script's SMA default since 2.30.1 (live 12 Oct 2026)
+        assert_eq!(p.adapt_filter, wvad::params::Filter::Ema);
         // step stop on since 2.29.1: TP1 → stop to entry, TP2 → stop to TP1
         assert_eq!((p.tp1_r, p.tp2_r, p.tp3_r, p.step_stop), (1.0, 2.0, 3.0, true));
         assert_eq!((p.adx_len, p.adx_threshold), (14, 20.0));
