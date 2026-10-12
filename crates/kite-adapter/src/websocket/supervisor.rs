@@ -10,6 +10,18 @@ use serde::Serialize;
 use tokio::time::{Duration, Instant, sleep_until, timeout_at};
 use tokio_tungstenite::tungstenite::Message;
 
+/// No frame at all (ticks or Kite's 1-byte heartbeats) for this long: the socket is dead.
+pub const FRAME_IDLE: Duration = Duration::from_secs(10);
+/// Frames still arriving but no fresh market-data tick for this long: treat the stream as
+/// broken. 60 s since kite-adapter 0.8.3 (was 10 s): a quiet CRUDEOILM tape can go more
+/// than 10 s without a tick while heartbeats show the connection is fine.
+pub const FRESH_DATA_IDLE: Duration = Duration::from_secs(60);
+
+/// When the next receive must have produced something: the earlier of the two limits.
+fn receive_deadline(last_frame: Instant, last_usable: Instant) -> Instant {
+    (last_frame + FRAME_IDLE).min(last_usable + FRESH_DATA_IDLE)
+}
+
 #[derive(Debug, Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum FeedEvent {
@@ -139,7 +151,7 @@ async fn observe_impl(
                     transport::close(&mut socket).await;
                     break 'connections;
                 }
-                message = transport::next(&mut socket, (last_frame + Duration::from_secs(10)).min(last_usable+Duration::from_secs(10))) => message,
+                message = transport::next(&mut socket, receive_deadline(last_frame, last_usable)) => message,
             };
             match message {
                 Ok(Some(Message::Binary(bytes))) => {
@@ -246,6 +258,16 @@ mod tests {
         let mut summary = Summary::default();
         assert!(process_binary(&bytes, 456, 1, &mut summary, &mut |_| {}).is_err());
         assert_eq!(summary.ticks, 0);
+    }
+    #[test]
+    fn heartbeats_keep_a_quiet_feed_alive_for_60_s_silence_kills_it_in_10_s() {
+        let t0 = Instant::now();
+        // Heartbeats keep arriving (last frame just now), last fresh tick 50 s ago: wait on.
+        assert_eq!(receive_deadline(t0, t0 - Duration::from_secs(50)), t0 + Duration::from_secs(10));
+        // Heartbeats keep arriving, no fresh tick for 60 s: the deadline is now.
+        assert_eq!(receive_deadline(t0, t0 - Duration::from_secs(60)), t0);
+        // Nothing at all (no heartbeat either) for 10 s: dead even if data was fresh then.
+        assert_eq!(receive_deadline(t0 - Duration::from_secs(10), t0 - Duration::from_secs(10)), t0);
     }
     #[test]
     fn heartbeat_does_not_imply_market_data_freshness() {
