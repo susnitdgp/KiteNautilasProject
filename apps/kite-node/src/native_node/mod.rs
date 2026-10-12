@@ -18,6 +18,5 @@ mod model_live;
 mod model_strategy;
 mod slot_config;
 mod wvad_model;
-mod lorentzian_model;
 mod dash_writer;
 mod dashboard;

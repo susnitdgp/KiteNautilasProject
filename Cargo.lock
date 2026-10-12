@@ -1235,7 +1235,7 @@ dependencies = [
 
 [[package]]
 name = "kite-adapter"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1283,14 +1283,13 @@ dependencies = [
 
 [[package]]
 name = "kite-node"
-version = "2.30.1"
+version = "2.31.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
  "kite-adapter",
  "log",
- "lorentzian",
  "nautilus-common",
  "nautilus-core",
  "nautilus-live",

@@ -1,6 +1,6 @@
 //! Authenticated reads and fixed virtual-contract-note calculation; no order mutation endpoints.
 use crate::credentials::KiteCredentials;
-use crate::execution::native_client::outage::ReadFailure;
+use crate::execution::native_client::outage::{ReadFailure, log_read_failure};
 use anyhow::{Result, anyhow, ensure};
 use reqwest::{
     Client, StatusCode,
@@ -184,20 +184,37 @@ impl ReadClient {
                 Some(at) => tokio::time::sleep_until(at).await,
             }
         }
-        let mut response = request
+        // 0.8.4: every failed read is logged with its path (never the query, headers or body),
+        // the actual cause and the elapsed time (see `outage::log_read_failure`). Errors and
+        // their classification are unchanged.
+        let (client, request) = request
             .header("X-Kite-Version", "3")
             .header(AUTHORIZATION, self.authorization.clone())
             .timeout(READ_TIMEOUT)
-            .send()
-            .await
-            .map_err(|_| anyhow!(ReadFailure::Transient))?;
-        if matches!(
-            response.status(),
-            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
-        ) {
+            .build_split();
+        let started = std::time::Instant::now();
+        let request = match request {
+            Ok(request) => request,
+            Err(e) => {
+                log_read_failure("(unbuilt request)", &transport_cause(&e), started.elapsed().as_millis());
+                return Err(anyhow!(ReadFailure::Transient));
+            }
+        };
+        let path = request.url().path().to_owned();
+        let failed = |cause: String| log_read_failure(&path, &cause, started.elapsed().as_millis());
+        let mut response = match client.execute(request).await {
+            Ok(response) => response,
+            Err(e) => {
+                failed(transport_cause(&e));
+                return Err(anyhow!(ReadFailure::Transient));
+            }
+        };
+        let status = response.status();
+        if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
+            failed(format!("HTTP {} (session rejected)", status.as_u16()));
             return Err(anyhow!(ReadFailure::SessionExpired));
         }
-        if response.status() == StatusCode::TOO_MANY_REQUESTS {
+        if status == StatusCode::TOO_MANY_REQUESTS {
             let seconds = response
                 .headers()
                 .get("retry-after")
@@ -205,29 +222,67 @@ impl ReadClient {
                 .and_then(|v| v.parse::<u64>().ok())
                 .unwrap_or(10)
                 .clamp(10, 86400);
+            failed(format!("HTTP 429 (rate limited, retry after {seconds} s)"));
             return Err(anyhow!(ReadFailure::RateLimited(seconds * 1000)));
         }
-        if response.status().is_server_error() {
+        if status.is_server_error() {
+            failed(format!("HTTP {} (server error)", status.as_u16()));
             return Err(anyhow!(ReadFailure::Transient));
         }
+        if !status.is_success() {
+            failed(format!("HTTP {} (unsuccessful status)", status.as_u16()));
+        }
         ensure!(
-            response.status().is_success(),
+            status.is_success(),
             "Kite read service returned an unsuccessful status"
         );
         let mut body = Zeroizing::new(Vec::new());
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| anyhow!(ReadFailure::Transient))?
-        {
+        loop {
+            let chunk = match response.chunk().await {
+                Ok(Some(chunk)) => chunk,
+                Ok(None) => break,
+                Err(e) => {
+                    failed(format!("body after {} bytes: {}", body.len(), transport_cause(&e)));
+                    return Err(anyhow!(ReadFailure::Transient));
+                }
+            };
             ensure!(
                 body.len() + chunk.len() <= 8 * 1024 * 1024,
                 "Kite response exceeds size limit"
             );
             body.extend_from_slice(&chunk);
         }
-        decode(&body)
+        let decoded = decode(&body);
+        if decoded.is_err() {
+            failed(format!("HTTP {} but the body did not decode ({} bytes)", status.as_u16(), body.len()));
+        }
+        decoded
     }
+}
+/// What went wrong with a request, without its URL: the reqwest error kind and the chain of
+/// underlying causes (connect, DNS, TLS, I/O), capped at 300 characters.
+fn transport_cause(e: &reqwest::Error) -> String {
+    let kind = if e.is_timeout() {
+        "timeout"
+    } else if e.is_connect() {
+        "connect error"
+    } else if e.is_body() {
+        "body error"
+    } else if e.is_decode() {
+        "decode error"
+    } else if e.is_request() {
+        "request error"
+    } else {
+        "transport error"
+    };
+    let mut cause = kind.to_owned();
+    let mut source = std::error::Error::source(e);
+    while let Some(inner) = source {
+        cause.push_str(": ");
+        cause.push_str(&inner.to_string());
+        source = inner.source();
+    }
+    cause.chars().take(300).collect()
 }
 #[derive(Deserialize)]
 struct Envelope<T> {

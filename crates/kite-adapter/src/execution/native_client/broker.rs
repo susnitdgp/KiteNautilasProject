@@ -145,6 +145,18 @@ impl Broker for KiteBroker {
         let mut orders = orders;
         first.sort_by(|a, b| a.order_id.cmp(&b.order_id));
         orders.sort_by(|a, b| a.order_id.cmp(&b.order_id));
+        if first != orders {
+            // 0.8.4: the order book moved between the snapshot's two /orders reads.
+            super::outage::log_read_failure(
+                "/orders",
+                &format!(
+                    "order book changed during the snapshot ({} then {} orders)",
+                    first.len(),
+                    orders.len()
+                ),
+                0,
+            );
+        }
         ensure!(first == orders, super::outage::ReadFailure::Transient);
         Ok(Snapshot {
             orders,

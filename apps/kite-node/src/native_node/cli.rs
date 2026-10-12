@@ -8,11 +8,9 @@ pub fn dispatch(args: &[String]) -> Option<Result<()>> {
     }
     use super::{model_backtest as bt, model_live as live};
     type Wvad = wvad::Params;
-    type Lorentzian = lorentzian::Params;
     Some(match(command,&args[1..]){
         ("native-portfolio-validate",[config])=>super::portfolio::inspect(config),
         ("native-wvad-backtest",[config,from,to])=>bt::run::<Wvad>(config,from,to),
-        ("native-lorentzian-backtest",[config,from,to])=>bt::run::<Lorentzian>(config,from,to),
         ("native-wvad-paper",[portfolio,instance])=>live::run::<Wvad>(portfolio,instance,None,Mode::Paper),
         ("native-wvad-live-preflight",[portfolio,instance,broker])=>live::preflight::<Wvad>(portfolio,instance,broker),
         ("native-wvad-live",[portfolio,instance,broker])=>live::run::<Wvad>(portfolio,instance,Some(broker),Mode::Live),
@@ -24,5 +22,5 @@ pub fn dispatch(args: &[String]) -> Option<Result<()>> {
 }
 
 fn usage() -> Result<()> {
-    bail!("Usage: native-portfolio-validate CONFIG | native-wvad-backtest CONFIG FROM TO | native-lorentzian-backtest CONFIG FROM TO | native-wvad-paper PORTFOLIO INSTANCE | native-wvad-live-preflight PORTFOLIO INSTANCE BROKER | native-wvad-live PORTFOLIO INSTANCE BROKER | native-kite-auth (Sniper and SATS are parked in backup/)")
+    bail!("Usage: native-portfolio-validate CONFIG | native-wvad-backtest CONFIG FROM TO | native-wvad-paper PORTFOLIO INSTANCE | native-wvad-live-preflight PORTFOLIO INSTANCE BROKER | native-wvad-live PORTFOLIO INSTANCE BROKER | native-kite-auth (Sniper and SATS are parked in backup/)")
 }

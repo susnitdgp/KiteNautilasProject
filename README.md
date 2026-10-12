@@ -18,14 +18,15 @@ Backtest (read-only, Kite historical candles, no orders):
 
 Writes `backtest_results/wvad/<symbol>/<run>/summary.txt`, `summary.json` and `trades.csv`.
 
-## Lorentzian Classification (Rust port, backtest only)
+## Lorentzian Classification (Rust port, crate only)
 
 `crates/lorentzian` ports Machine Learning: Lorentzian Classification v2.0 [jdehorty] (MPL 2.0): five
 normalised features, Lorentzian-distance nearest neighbours, volatility/regime filters, kernel
 regression, the script's 4-bar or dynamic kernel exit, plus an ATR safety stop. Rolling 2000-bar
 neighbour window (deterministic; differs from TradingView by design). See `doc/LORENTZIAN_STRATEGY.md`.
 
-    ./target/release/kite-node native-lorentzian-backtest config/lorentzian-crudeoilm.json 2026-09-21 2026-10-09
+Since kite-node 2.31.0 the crate is not wired into kite-node (no `native-lorentzian-backtest`
+command); it is built and tested on its own with `cargo test -p lorentzian`.
 
 ### Running WVAD on the market (CRUDEOILM slot `crudeoilm-wvad-202610`)
 

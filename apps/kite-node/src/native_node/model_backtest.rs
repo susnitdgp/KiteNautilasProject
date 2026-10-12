@@ -1,4 +1,4 @@
-//! Read-only bar-model replay (WVAD, Lorentzian) on Kite history with MIS execution.
+//! Read-only bar-model replay (WVAD) on Kite history with MIS execution.
 //! Never places orders.
 //!
 //! The model runs bar for bar exactly like its Pine script: entry at the signal bar close,
@@ -18,6 +18,9 @@ use kite_adapter::http::historical::{Candle, Interval, Reader};
 use serde::Serialize;
 use wvad::{Bar, Event};
 use std::{collections::BTreeMap, fmt::Write as _, path::PathBuf};
+
+/// Calendar days fetched before FROM for warm-up (EMA trend × 3, ATR mean, MACD).
+const WARMUP_DAYS: i64 = 4;
 
 fn ist(ts: i64) -> DateTime<FixedOffset> {
     DateTime::from_timestamp(ts, 0).expect("timestamp").with_timezone(&FixedOffset::east_opt(19_800).expect("IST"))
@@ -316,7 +319,7 @@ pub fn run<P: ModelParams>(config_path: &str, from: &str, to: &str) -> Result<()
     let from: NaiveDate = from.parse()?;
     let to: NaiveDate = to.parse()?;
     ensure!(from <= to, "FROM must not be after TO");
-    let candles = fetch(c.instrument_token, from - Duration::days(c.params.backtest_warmup_days()), to, c.interval())?;
+    let candles = fetch(c.instrument_token, from - Duration::days(WARMUP_DAYS), to, c.interval())?;
     let bars: Vec<Bar> = bars_from(&candles)?.into_iter().filter(|b| ist(b.start).date_naive() <= to).collect();
     ensure!(!bars.is_empty(), "No history for {} in the range", c.symbol);
     let (report, rows) = report(&c, &bars, from, to);
