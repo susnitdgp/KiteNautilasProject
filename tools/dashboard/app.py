@@ -1,4 +1,4 @@
-# app.py v1.1.0
+# app.py v1.1.2
 """Live web dashboard for the Nautilus Kite bot (Streamlit).
 
 Reads the dashboard Redis the bot publishes to (doc/LIVE_DASHBOARD.md): per slot
@@ -21,11 +21,11 @@ import pandas as pd
 import redis
 import streamlit as st
 
-VERSION = "1.1.0"
+VERSION = "1.1.2"
 IST = timezone(timedelta(hours=5, minutes=30))
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = Path(os.environ.get("DASHBOARD_CONFIG", ROOT / "config" / "dashboard.json"))
-PREFIXES = ["kite-prod", "kite-demo"]
+PREFIXES = ["kite-prod", "kite-demo", "xts-paper", "xts-prod"]
 STALE_S = 5  # the bot writes at least once a second
 TRAIL_POINTS = 900  # price points kept per slot in this browser session
 
@@ -417,7 +417,7 @@ with st.sidebar:
     st.markdown(f"**Kite bot · live** v{VERSION}")
     prefix = st.selectbox("Key prefix", PREFIXES, index=PREFIXES.index(os.environ.get("DASH_PREFIX", "kite-prod"))
                           if os.environ.get("DASH_PREFIX", "kite-prod") in PREFIXES else 0,
-                          help="kite-prod = the bot · kite-demo = tools/dashboard/wvad_demo.py")
+                          help="kite-prod = the Kite bot · xts-paper = xts-node paper run · kite-demo = tools/dashboard/wvad_demo.py")
     refresh = st.select_slider("Refresh", options=[1, 2, 5, 10], value=1, format_func=lambda s: f"{s} s")
     event_count = st.select_slider("Events shown", options=[20, 50, 100, 250], value=50)
     st.caption("Read-only view of the dashboard Redis. The Redis URL stays on the server.")
